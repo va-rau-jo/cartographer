@@ -70,6 +70,8 @@ func _build() -> void:
 	_play_button = _make_button("Begin", _on_play_pressed)
 	column.add_child(_play_button)
 
+	column.add_child(_make_button("Walk the gallery (no album)", _enter_gallery))
+
 	column.add_child(_make_button("Build an album", _on_editor_pressed))
 
 	if not OS.has_feature("web"):
@@ -85,7 +87,7 @@ func _build() -> void:
 	column.add_child(_status)
 
 	var hint := Label.new()
-	hint.text = "F11 — debug overlay"
+	hint.text = "WASD walk · Shift slow · F11 debug overlay · Esc release mouse"
 	hint.add_theme_font_size_override("font_size", 12)
 	hint.add_theme_color_override("font_color", Color(0.4, 0.38, 0.35))
 	column.add_child(hint)
@@ -115,11 +117,19 @@ func _on_load_pressed() -> void:
 
 
 func _on_play_pressed() -> void:
-	if not AlbumService.has_album():
-		return
-	# M8 replaces this with the hospital scene and the transition into his mind.
-	_set_status("[color=gray]The gallery is not built yet — that is M7. "
-		+ "The album is loaded and validated, which is what M2 proves.[/color]")
+	# Straight into the gallery. M8 puts the hospital scene and the transition
+	# into his mind in front of this; for now it is the walkable grey-box.
+	_enter_gallery()
+
+
+## The gallery hangs placeholder images when no album is loaded, so the space
+## can be walked and judged before the round logic exists.
+func _enter_gallery() -> void:
+	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	var err := get_tree().change_scene_to_file("res://scenes/gallery/gallery.tscn")
+	if err != OK:
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+		_set_status("[color=#e08080]Could not open the gallery (error %d).[/color]" % err)
 
 
 func _on_editor_pressed() -> void:

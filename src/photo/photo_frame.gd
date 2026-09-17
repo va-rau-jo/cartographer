@@ -10,11 +10,14 @@ extends Node3D
 ## rather than ambience, and it draws the eye to the next photograph, which is
 ## the only wayfinding a corridor needs.
 
-const OPENING_WIDTH := 1.06
-const OPENING_HEIGHT := 0.87
-const MOULDING_WIDTH := 0.075
-const MOULDING_DEPTH := 0.06
-const BOARD_DEPTH := 0.022
+## Museum scale: roughly two metres across, so a photograph reads as a work
+## rather than a snapshot. The mount board absorbs each photo's aspect, so
+## every frame is still physically identical (plan §4.3).
+const OPENING_WIDTH := 2.12
+const OPENING_HEIGHT := 1.74
+const MOULDING_WIDTH := 0.14
+const MOULDING_DEPTH := 0.11
+const BOARD_DEPTH := 0.035
 
 ## Blur strength per tier, in texels. Tier textures get smaller as the tier
 ## drops, so a constant texel radius already means a much heavier world-space
@@ -139,13 +142,13 @@ func _build_accent() -> void:
 	_accent = SpotLight3D.new()
 	_accent.name = "Accent"
 	# Above and in front, angled down at the picture — a gallery wall-washer.
-	_accent.position = Vector3(0, OPENING_HEIGHT * 0.5 + 0.62, 0.78)
-	_accent.rotation_degrees = Vector3(-42, 0, 0)
+	_accent.position = Vector3(0, OPENING_HEIGHT * 0.5 + 0.95, 1.35)
+	_accent.rotation_degrees = Vector3(-38, 0, 0)
 	_accent.light_color = Color(1.0, 0.93, 0.82)
-	_accent.light_energy = 0.55
-	_accent.spot_range = 4.0
-	_accent.spot_angle = 30.0
-	_accent.spot_angle_attenuation = 1.4
+	_accent.light_energy = 0.9
+	_accent.spot_range = 6.5
+	_accent.spot_angle = 38.0
+	_accent.spot_angle_attenuation = 1.2
 	# No shadow map. An accent light washes a flat wall from close range, so it
 	# has nothing meaningful to shadow — and ten shadow-casting spots in one
 	# corridor is real cost the WebGL 2 renderer has no headroom for. The

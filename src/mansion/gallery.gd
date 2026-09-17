@@ -13,7 +13,7 @@ extends Node3D
 ## from Blender-baked AO in the trim sheets.
 
 const FOG_DENSITY := 0.009
-const AMBIENT_ENERGY := 0.30
+const AMBIENT_ENERGY := 0.20
 
 @export var show_debug_markers := false
 
@@ -34,7 +34,7 @@ const AMBIENT_ENERGY := 0.30
 var hallway: HallwayBuilder.Result = null
 var frames: Array[PhotoFrame] = []
 var player: PlayerController = null
-var companion: VoxelFigure = null
+var companion: PixelFigure = null
 
 var _shafts: Array[LightShaft] = []
 
@@ -69,12 +69,12 @@ func _build_environment() -> void:
 	# waits and is also how the renderer's limits get hidden (plan §1.5).
 	env.fog_enabled = true
 	env.fog_light_color = Color(0.26, 0.23, 0.21)
-	env.fog_light_energy = 0.7
+	env.fog_light_energy = 0.55
 	env.fog_density = FOG_DENSITY
 	env.fog_sky_affect = 0.0
 
 	env.tonemap_mode = Environment.TONE_MAPPER_ACES
-	env.tonemap_exposure = 0.82
+	env.tonemap_exposure = 0.70
 	env.tonemap_white = 9.0
 
 	env.glow_enabled = true
@@ -138,8 +138,8 @@ func _matte(albedo: Color, roughness: float, specular: float) -> StandardMateria
 # ------------------------------------------------------------------- windows
 
 func _build_windows() -> void:
-	var win_size := Vector2(HallwayBuilder.WINDOW_WIDTH,
-		HallwayBuilder.WINDOW_HEAD - HallwayBuilder.WINDOW_SILL)
+	var win_size := Vector2(HallwayBuilder.CLERESTORY_WIDTH,
+		HallwayBuilder.CLERESTORY_HEAD - HallwayBuilder.CLERESTORY_SILL)
 
 	for i in hallway.window_anchors.size():
 		var anchor: Transform3D = hallway.window_anchors[i]
@@ -160,7 +160,7 @@ func _build_windows() -> void:
 		pane_mat.emission = Color(1.0, 0.95, 0.84)
 		# Bright, but nowhere near 2.6: with ACES plus glow that clipped to a
 		# featureless white slab and read as a light box rather than daylight.
-		pane_mat.emission_energy_multiplier = 0.42
+		pane_mat.emission_energy_multiplier = 0.34
 		pane_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		pane.material_override = pane_mat
 		# No extra rotation: the window anchor's basis already faces local +Z
@@ -172,26 +172,28 @@ func _build_windows() -> void:
 		# The actual light doing the work on the opposite wall.
 		var light := SpotLight3D.new()
 		light.light_color = Color(1.0, 0.94, 0.82)
-		light.light_energy = 3.4
-		light.spot_range = 9.5
-		light.spot_angle = 58.0
-		light.spot_angle_attenuation = 0.7
+		light.light_energy = 4.4
+		light.spot_range = 16.0
+		light.spot_angle = 62.0
+		light.spot_angle_attenuation = 0.6
 		light.shadow_enabled = true
-		light.position = Vector3(0, 0.55, 0.15)
+		light.position = Vector3(0, 0.2, 0.3)
 		# A spot shines along its local -Z. The anchor's local -Z points back
 		# through the wall, so this turns it around to face into the hall and
 		# tilts it down onto the opposite wall where the pictures hang. Getting
 		# this backwards left the whole corridor unlit by anything but the
 		# accent lights.
-		light.rotation_degrees = Vector3(-16, 180, 0)
+		# Steeper than before: the opening is now four metres up, and the
+		# pictures it has to reach are on the far wall and low down.
+		light.rotation_degrees = Vector3(-34, 180, 0)
 		holder.add_child(light)
 
 		var bounce := OmniLight3D.new()
 		bounce.light_color = Color(0.92, 0.88, 0.80)
-		bounce.light_energy = 0.55
-		bounce.omni_range = 4.2
+		bounce.light_energy = 0.42
+		bounce.omni_range = 6.5
 		bounce.shadow_enabled = false
-		bounce.position = Vector3(0, -0.3, 1.6)
+		bounce.position = Vector3(0, -1.2, 2.4)
 		holder.add_child(bounce)
 
 		if not enable_light_shafts:
@@ -212,10 +214,10 @@ func _build_windows() -> void:
 	var entrance := OmniLight3D.new()
 	entrance.name = "EntranceSpill"
 	entrance.light_color = Color(0.96, 0.90, 0.80)
-	entrance.light_energy = 1.5
-	entrance.omni_range = 6.0
+	entrance.light_energy = 1.7
+	entrance.omni_range = 9.5
 	entrance.shadow_enabled = true
-	entrance.position = Vector3(0, 2.2, 0.6)
+	entrance.position = Vector3(0, 2.6, 0.9)
 	add_child(entrance)
 
 	# Dust in the shafts. One emitter for the whole hall.
@@ -225,7 +227,7 @@ func _build_windows() -> void:
 func _build_dust() -> void:
 	var particles := GPUParticles3D.new()
 	particles.name = "Dust"
-	particles.amount = 420
+	particles.amount = 620
 	particles.lifetime = 14.0
 	particles.preprocess = 7.0
 	particles.visibility_aabb = AABB(
@@ -285,7 +287,7 @@ func _build_frames() -> void:
 			# on its own before the data layer is wired in.
 			var placeholder := AlbumSchema.Photo.new()
 			placeholder.id = "placeholder_%d" % i
-			placeholder.aspect = [1.5, 0.667, 1.0, 1.5, 1.33][i % 5]
+			placeholder.aspect = [1.5, 0.667, 1.0, 1.33, 0.75][i % 5]
 			frame.setup(placeholder, _placeholder_texture(i))
 
 		frames.append(frame)
@@ -318,13 +320,25 @@ func _build_characters() -> void:
 	player.transform = hallway.player_start
 
 	# He waits at the far end, in the dark, facing back up the hall.
-	companion = VoxelFigure.new()
+	companion = PixelFigure.new()
 	companion.name = "Companion"
 	add_child(companion)
-	companion.build(VoxelFigure.Palette.husband())
+	companion.build(PixelFigure.Palette.husband())
 	companion.transform = hallway.companion_end
 	companion.rotation_degrees = Vector3(0, 180, 0)
 
 
 func camera() -> Camera3D:
 	return player.camera if player != null else null
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	# Without this the captured mouse has no way out of a grey-box build.
+	if event.is_action_pressed(&"ui_cancel_custom"):
+		if Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+			Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+		else:
+			get_tree().change_scene_to_file("res://scenes/menu/main_menu.tscn")
+	elif event is InputEventMouseButton and event.pressed:
+		if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
+			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED

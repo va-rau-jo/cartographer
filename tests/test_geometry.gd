@@ -23,49 +23,86 @@ static func _test_hallway(t: TestFramework) -> void:
 	t.eq(h.mesh.get_surface_count(), 4,
 		"one surface per material: floor, wall, trim, ceiling")
 
-	# One frame anchor per photograph, and the album is exactly ten.
+	# Five bays, two photographs each — one per wall — makes the ten an album
+	# holds.
+	t.eq(HallwayBuilder.frame_count(), AlbumSchema.PHOTOS_PER_ALBUM,
+		"five bays times two walls is exactly an album")
 	t.eq(h.frame_anchors.size(), AlbumSchema.PHOTOS_PER_ALBUM,
-		"ten frame anchors, matching an album")
-	t.eq(h.window_anchors.size(), HallwayBuilder.BAY_COUNT,
-		"one window per bay")
+		"ten frame anchors")
+	t.eq(h.window_anchors.size(), HallwayBuilder.CLERESTORY_COUNT * 2,
+		"clerestory openings on both sides")
 
-	# Anchors must be on the right wall, at picture height, evenly spaced.
 	var half_w := HallwayBuilder.HALL_WIDTH * 0.5
+
+	# Hang order is bay 0 right, bay 0 left, bay 1 right, ... so she meets the
+	# photographs in pairs as she walks rather than all down one wall.
 	for i in h.frame_anchors.size():
 		var origin: Vector3 = h.frame_anchors[i].origin
-		t.close(origin.x, half_w - 0.02, 0.001, "frame %d sits on the right wall" % i)
+		var facing: Vector3 = h.frame_anchors[i].basis.z.normalized()
+		var bay := i / HallwayBuilder.FRAMES_PER_BAY
+		var on_right := i % HallwayBuilder.FRAMES_PER_BAY == 0
+
+		t.close(origin.z, HallwayBuilder.bay_z(bay), 0.001,
+			"frame %d is in bay %d" % [i, bay])
 		t.close(origin.y, HallwayBuilder.FRAME_ANCHOR_HEIGHT, 0.001,
 			"frame %d is at picture height" % i)
-		t.close(origin.z, HallwayBuilder.bay_z(i), 0.001, "frame %d is in bay %d" % [i, i])
 
-	for i in h.frame_anchors.size() - 1:
-		var a: Vector3 = h.frame_anchors[i].origin
-		var b: Vector3 = h.frame_anchors[i + 1].origin
-		t.close(absf(b.z - a.z), HallwayBuilder.BAY_SPACING, 0.001,
-			"frames %d and %d are one bay apart" % [i, i + 1])
+		if on_right:
+			t.close(origin.x, half_w - 0.02, 0.001, "frame %d is on the right wall" % i)
+			t.close(facing.x, -1.0, 0.001, "frame %d faces into the hall (-X)" % i)
+		else:
+			t.close(origin.x, -half_w + 0.02, 0.001, "frame %d is on the left wall" % i)
+			t.close(facing.x, 1.0, 0.001, "frame %d faces into the hall (+X)" % i)
 
-	# A frame anchor's local +Z must point INTO the hall, because a QuadMesh
-	# faces +Z and the picture has to face the player.
-	for i in h.frame_anchors.size():
-		var facing: Vector3 = h.frame_anchors[i].basis.z.normalized()
-		t.close(facing.x, -1.0, 0.001, "frame %d faces into the hall (-X)" % i)
+	# The two frames of a bay must face each other across the hall.
+	for bay in HallwayBuilder.BAY_COUNT:
+		var right: Transform3D = h.frame_anchors[bay * 2]
+		var left: Transform3D = h.frame_anchors[bay * 2 + 1]
+		t.close(right.origin.z, left.origin.z, 0.001,
+			"bay %d hangs its pair at the same depth" % bay)
+		t.close(right.basis.z.dot(left.basis.z), -1.0, 0.001,
+			"bay %d pair faces each other" % bay)
 
-	# A window anchor's local +Z must point the other way, into the hall from
-	# the left wall. Getting this backwards fired the window lights through the
-	# wall and left the corridor unlit.
+	# Bays evenly spaced, and wide enough apart for a two-metre picture.
+	for bay in HallwayBuilder.BAY_COUNT - 1:
+		var a := HallwayBuilder.bay_z(bay)
+		var b := HallwayBuilder.bay_z(bay + 1)
+		t.close(absf(b - a), HallwayBuilder.BAY_SPACING, 0.001,
+			"bays %d and %d are one spacing apart" % [bay, bay + 1])
+	t.gt(HallwayBuilder.BAY_SPACING,
+		PhotoFrame.OPENING_WIDTH + PhotoFrame.MOULDING_WIDTH * 2.0 + 0.6,
+		"bays are wider than a framed picture plus breathing room")
+
+	# The hall must be wide enough that two facing pictures are not in each
+	# other's faces, and tall enough to carry them under a clerestory.
+	t.gt(HallwayBuilder.HALL_WIDTH, 8.0, "the hall is genuinely wide")
+	t.gt(HallwayBuilder.HALL_HEIGHT, HallwayBuilder.CLERESTORY_HEAD,
+		"the ceiling clears the clerestory head")
+
+	# Clerestory windows must sit ABOVE the pictures: that is the whole reason
+	# they moved upstairs when the second wall filled with photographs.
+	var picture_top := HallwayBuilder.FRAME_ANCHOR_HEIGHT \
+		+ PhotoFrame.OPENING_HEIGHT * 0.5 + PhotoFrame.MOULDING_WIDTH
+	t.gt(HallwayBuilder.CLERESTORY_SILL, picture_top,
+		"the clerestory sill clears the top of a framed picture")
+
+	# Openings on both walls, facing into the hall.
 	for i in h.window_anchors.size():
 		var origin: Vector3 = h.window_anchors[i].origin
 		var facing: Vector3 = h.window_anchors[i].basis.z.normalized()
-		t.close(origin.x, -half_w, 0.001, "window %d sits on the left wall" % i)
-		t.close(facing.x, 1.0, 0.001, "window %d faces into the hall (+X)" % i)
+		t.close(absf(origin.x), half_w, 0.001, "window %d sits on a side wall" % i)
+		t.close(facing.x, -signf(origin.x), 0.001,
+			"window %d faces into the hall" % i)
+		t.gt(origin.y, picture_top, "window %d is above the pictures" % i)
+		t.lt(origin.y, HallwayBuilder.HALL_HEIGHT, "window %d is below the ceiling" % i)
 
-	# Windows offset half a bay from the frames, so light lands between the
-	# pictures rather than straight onto them.
-	for i in h.window_anchors.size():
-		var win_z: float = h.window_anchors[i].origin.z
-		var frame_z := HallwayBuilder.bay_z(i)
-		t.close(absf(win_z - frame_z), HallwayBuilder.BAY_SPACING * 0.5, 0.001,
-			"window %d is half a bay off frame %d" % [i, i])
+	# Half the openings on each side.
+	var left_count := 0
+	for anchor in h.window_anchors:
+		if anchor.origin.x < 0.0:
+			left_count += 1
+	t.eq(left_count, HallwayBuilder.CLERESTORY_COUNT,
+		"the clerestory is symmetric across the hall")
 
 	# The hall must be long enough to hold every bay plus run-out.
 	t.gt(h.hall_length, absf(HallwayBuilder.bay_z(HallwayBuilder.BAY_COUNT - 1)),
@@ -228,35 +265,67 @@ static func _test_greedy_meshing(t: TestFramework) -> void:
 # --------------------------------------------------- figure proportions
 
 static func _test_figure_proportions(t: TestFramework) -> void:
-	# The joint offsets are derived from the grid sizes precisely so they
-	# cannot drift apart. An earlier version had the hips below the leg length,
-	# which sank the feet through the floor and buried the head in the chest.
-	t.close(VoxelFigure.LEG_LENGTH,
-		float(VoxelFigure.THIGH_VOXELS + VoxelFigure.SHIN_VOXELS) * VoxelFigure.VOXEL,
-		0.0001, "leg length is derived from the leg grids")
-	t.close(VoxelFigure.TORSO_HEIGHT,
-		float(VoxelFigure.TORSO_VOXELS) * VoxelFigure.VOXEL, 0.0001,
-		"torso height is derived from the torso grid")
+	# The character is a drawn sprite extruded to a few centimetres, not a
+	# voxel model. The earlier figure was not too blocky, it was too COARSE:
+	# nine voxels across a torso. These assertions pin the resolution that
+	# fixed it.
+	t.gt(PixelFigure.SPRITE_HEIGHT, 40,
+		"the sprite is tall enough to be pixel art rather than Minecraft")
+	t.gt(PixelFigure.SPRITE_WIDTH, 24, "the sprite has width to draw into")
+	t.close(PixelFigure.FIGURE_HEIGHT,
+		float(PixelFigure.SPRITE_HEIGHT) * PixelFigure.PIXEL, 0.0001,
+		"figure height is derived from the sprite, not set separately")
 
-	# An elderly woman, not a hero: somewhere between 1.5 and 1.8 m.
-	t.gt(VoxelFigure.FIGURE_HEIGHT, 1.45, "figure is at least 1.45 m tall")
-	t.lt(VoxelFigure.FIGURE_HEIGHT, 1.80, "figure is under 1.80 m tall")
+	# An elderly woman, not a hero.
+	t.gt(PixelFigure.FIGURE_HEIGHT, 1.45, "figure is at least 1.45 m tall")
+	t.lt(PixelFigure.FIGURE_HEIGHT, 1.80, "figure is under 1.80 m tall")
+
+	# Thickness has to be real enough to catch light and cast a silhouette,
+	# but nowhere near a modelled body.
+	var depth := float(PixelFigure.THICKNESS) * PixelFigure.PIXEL
+	t.gt(depth, 0.04, "the figure has enough thickness to read as solid")
+	t.lt(depth, 0.20, "the figure is still a drawing, not a model")
 
 	# She must fit through the door and under the ceiling with room to spare.
-	t.lt(VoxelFigure.FIGURE_HEIGHT, HallwayBuilder.DOOR_HEIGHT,
+	t.lt(PixelFigure.FIGURE_HEIGHT, HallwayBuilder.DOOR_HEIGHT,
 		"figure fits through the doorway")
-	t.lt(VoxelFigure.FIGURE_HEIGHT, HallwayBuilder.HALL_HEIGHT,
+	t.lt(PixelFigure.FIGURE_HEIGHT, HallwayBuilder.HALL_HEIGHT,
 		"figure fits under the ceiling")
 
-	# Arms must hang clear of the torso, or their faces z-fight with the chest.
-	t.gt(VoxelFigure.SHOULDER_X, VoxelFigure.TORSO_HALF_WIDTH,
-		"shoulders sit outside the torso half-width")
+	# The pictures are hung for someone her height to look at.
+	var eye_height := PixelFigure.FIGURE_HEIGHT * 0.92
+	t.lt(absf(eye_height - HallwayBuilder.FRAME_ANCHOR_HEIGHT), 0.75,
+		"pictures hang within comfortable reach of her eyeline")
 
-	# Her eyeline should be near the pictures, which is what makes the hang
-	# height right.
-	var eye_height := VoxelFigure.FIGURE_HEIGHT * 0.94
-	t.lt(absf(eye_height - HallwayBuilder.FRAME_ANCHOR_HEIGHT), 0.45,
-		"pictures hang within half a metre of her eyeline")
+	# Three drawn views cover four facings, because the profile is mirrored.
+	t.eq(PixelFigure.View.size(), 3, "front, side and back views")
+
+	# Every palette entry must resolve, including the derived shades: a missing
+	# index would silently render as grey.
+	var colours := PixelFigure.Palette.new().to_array()
+	t.eq(colours.size(), 12, "palette covers every index the canvases use")
+	for i in range(1, colours.size()):
+		var c: Color = colours[i]
+		t.ok(c.a > 0.99, "palette index %d is opaque" % i)
+
+	# Shades must actually be darker than their base, or the form shading
+	# inverts under scene light.
+	var pal := PixelFigure.Palette.new()
+	var arr := pal.to_array()
+	for base in PixelFigure.SHADE_OF.keys():
+		var b: Color = arr[base]
+		var sh: Color = arr[PixelFigure.SHADE_OF[base]]
+		t.lt(sh.get_luminance(), b.get_luminance(),
+			"shade of index %d is darker than its base" % base)
+
+	# The husband reads as a different person, not a recolour of nothing.
+	var her := PixelFigure.Palette.new().to_array()
+	var him := PixelFigure.Palette.husband().to_array()
+	var differences := 0
+	for i in her.size():
+		if not (her[i] as Color).is_equal_approx(him[i]):
+			differences += 1
+	t.gt(float(differences), 2.0, "the two figures differ in several tones")
 
 
 # ------------------------------------------------------------ frame mat
@@ -266,6 +335,11 @@ static func _test_frame_mat(t: TestFramework) -> void:
 	# side margins rather than being stretched (plan §4.3).
 	var opening := PhotoFrame.opening_aspect()
 	t.gt(opening, 1.0, "the frame opening is landscape")
+
+	# Museum scale: about two metres across, so a photograph is a work rather
+	# than a snapshot on a wall.
+	t.gt(PhotoFrame.OPENING_WIDTH, 1.8, "the opening is grand, not domestic")
+	t.gt(PhotoFrame.OPENING_HEIGHT, 1.5, "the opening is tall enough to match")
 	t.close(opening, PhotoFrame.OPENING_WIDTH / PhotoFrame.OPENING_HEIGHT, 0.0001,
 		"opening aspect matches its dimensions")
 

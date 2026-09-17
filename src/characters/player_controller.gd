@@ -1,19 +1,19 @@
 class_name PlayerController
 extends CharacterBody3D
 ## Third person. The player is the woman, and the camera is on a spring arm so
-## her voxel figure is on screen the whole time — which is what justifies the
+## her drawn figure is on screen the whole time — which is what justifies the
 ## customization feature existing at all (plan §11.2).
 ##
 ## No run. An old woman in her husband's memory does not sprint down a gallery,
 ## and a sprint key would undercut every other pacing decision in the game.
 
-const WALK_SPEED := 1.55
+const WALK_SPEED := 1.70
 const SLOW_SPEED := 0.75
 const ACCELERATION := 7.0
 const FRICTION := 9.0
 const TURN_RATE := 9.0
 
-const ARM_LENGTH := 3.1
+const ARM_LENGTH := 3.6
 const ARM_HEIGHT := 1.35
 const CAMERA_PITCH := -8.0
 const MOUSE_SENSITIVITY := 0.0022
@@ -22,7 +22,7 @@ const MOUSE_SENSITIVITY := 0.0022
 ## than cutting, and movement is locked out.
 const EXAMINE_BLEND := 4.0
 
-var figure: VoxelFigure = null
+var figure: PixelFigure = null
 var camera: Camera3D = null
 
 var _arm: SpringArm3D = null
@@ -60,7 +60,7 @@ func _build_camera() -> void:
 	_arm.spring_length = ARM_LENGTH
 	_arm.margin = 0.3
 	# Collision-aware: the arm shortens rather than clipping through a wall,
-	# which matters in a 4.6 m corridor.
+	# which matters even in a nine-metre hall when she walks close to a wall.
 	_arm.collision_mask = 1
 	_arm.rotation_degrees = Vector3(CAMERA_PITCH, 0, 0)
 	_yaw_pivot.add_child(_arm)
@@ -72,7 +72,7 @@ func _build_camera() -> void:
 
 
 func _build_figure() -> void:
-	figure = VoxelFigure.new()
+	figure = PixelFigure.new()
 	figure.name = "Figure"
 	add_child(figure)
 	figure.build()
@@ -88,6 +88,7 @@ func _unhandled_input(event: InputEvent) -> void:
 func _physics_process(delta: float) -> void:
 	if _examining:
 		_blend_to_examine(delta)
+		_animate_walk(delta)
 		return
 
 	var input := Input.get_vector(&"move_left", &"move_right",
@@ -117,25 +118,19 @@ func _physics_process(delta: float) -> void:
 		velocity.y = 0.0
 
 	_yaw_pivot.rotation.y = _yaw - rotation.y
-	_animate_walk()
+	_animate_walk(delta)
 	move_and_slide()
 
 
-## A slow, heavy gait keyed directly on the joint nodes. Placeholder until the
-## authored AnimationPlayer clips land, but it is enough to judge whether the
-## voxel figure sits in the room.
-func _animate_walk() -> void:
-	if figure == null or figure.leg_l == null:
+## A drawn figure has no joints, so the gait is a bob and a lean rather than
+## swinging limbs — and the sprite has to be turned toward the camera each
+## frame or she reads as a card seen edge-on.
+func _animate_walk(delta: float) -> void:
+	if figure == null:
 		return
-	var swing := sin(_walk_phase) * 18.0
-	var lift := absf(cos(_walk_phase)) * 6.0
-	figure.leg_l.rotation_degrees.x = swing
-	figure.leg_r.rotation_degrees.x = -swing
-	figure.shin_l.rotation_degrees.x = -lift
-	figure.shin_r.rotation_degrees.x = -lift
-	if figure.arm_l != null:
-		figure.arm_l.rotation_degrees.x = 4.0 - swing * 0.35
-		figure.arm_r.rotation_degrees.x = 4.0 + swing * 0.35
+	figure.animate_walk(delta, Vector2(velocity.x, velocity.z).length())
+	if camera != null:
+		figure.update_view_for_camera(camera.global_position)
 
 
 # --- examine mode ---
@@ -147,7 +142,7 @@ func begin_examine(frame_transform: Transform3D) -> void:
 	var forward := frame_transform.basis.z.normalized()
 	_examine_target = Transform3D(
 		Basis.looking_at(-forward, Vector3.UP),
-		frame_transform.origin + forward * 1.45 + Vector3(0, 0.05, 0))
+		frame_transform.origin + forward * 2.6 + Vector3(0, -0.25, 0))
 
 
 func end_examine() -> void:

@@ -2,52 +2,61 @@ class_name HallwayBuilder
 extends RefCounted
 ## Procedurally builds the gallery hallway.
 ##
-## Everything here is prismatic — boxes, extrusions, a lathe profile for the
-## cornice — which is exactly what makes a hallway the right first space: tall
-## walls, a repeating bay rhythm, pilasters, a coffered ceiling. All of it is
-## code, so it costs nothing in the download budget (plan §1.4) and one changed
-## number updates every bay.
+## Everything here is prismatic — boxes and stepped profiles — which is what
+## makes a hallway the right first space: tall walls, a repeating bay rhythm,
+## pilasters, a coffered ceiling. All of it is code, so it costs nothing in the
+## download budget (plan §1.4) and one changed number updates every bay.
 ##
 ## The layout the geometry serves:
 ##
-##   photographs down the RIGHT wall (+X), one per bay
-##   tall windows down the LEFT wall (-X), offset half a bay so the light
-##     falls between the frames rather than straight onto them
+##   FIVE bays, with a grand photograph on BOTH walls of each — ten in all
+##   CLERESTORY windows high above the pictures, three per side, throwing light
+##     down across the opposite wall
 ##   the far end (-Z) left dark, which is where he waits
+##
+## Why the windows moved upstairs: with photographs on both walls there is no
+## wall left for tall windows, and a museum solves exactly this problem the
+## same way — light from above the pictures, never beside them. It also keeps
+## the raking light that made the mouldings read without SSAO.
 ##
 ## build() returns geometry plus the anchor transforms the gallery scene needs;
 ## it never touches the scene tree, so it is testable headless.
 
-const BAY_COUNT := 10
-const BAY_SPACING := 2.4
+const BAY_COUNT := 5
+const FRAMES_PER_BAY := 2          ## one on each wall
+const BAY_SPACING := 4.4
 
-const HALL_WIDTH := 4.6
-const HALL_HEIGHT := 5.0
-const WALL_THICKNESS := 0.4
+const HALL_WIDTH := 9.2            ## twice the old width
+const HALL_HEIGHT := 6.2           ## taller, to carry the bigger pictures
+const WALL_THICKNESS := 0.5
 
 ## First bay centre, and therefore where she starts looking.
-const FIRST_BAY_Z := -2.2
+const FIRST_BAY_Z := -3.4
 
-const SKIRTING_HEIGHT := 0.22
-const SKIRTING_DEPTH := 0.05
+const SKIRTING_HEIGHT := 0.30
+const SKIRTING_DEPTH := 0.07
 
-const PILASTER_WIDTH := 0.34
-const PILASTER_DEPTH := 0.13
+const PILASTER_WIDTH := 0.52
+const PILASTER_DEPTH := 0.19
 
-const CORNICE_HEIGHT := 0.40
-const CORNICE_DEPTH := 0.26
-const CORNICE_STEPS := 4        ## stepped profile; reads as moulding under raking light
+const CORNICE_HEIGHT := 0.56
+const CORNICE_DEPTH := 0.34
+const CORNICE_STEPS := 5            ## stepped profile; reads as moulding under raking light
 
-const WINDOW_WIDTH := 1.60
-const WINDOW_SILL := 1.05
-const WINDOW_HEAD := 3.70
+## Clerestory band: high, wide, and above the pictures.
+const CLERESTORY_COUNT := 3         ## per side
+const CLERESTORY_WIDTH := 2.30
+const CLERESTORY_SILL := 3.55
+const CLERESTORY_HEAD := 5.45
 
-const CEILING_BEAM_DEPTH := 0.22
-const CEILING_BEAM_WIDTH := 0.30
+const CEILING_BEAM_DEPTH := 0.30
+const CEILING_BEAM_WIDTH := 0.46
 
-const FRAME_ANCHOR_HEIGHT := 1.72   ## centre of the picture, near standing eye level
-const DOOR_WIDTH := 1.6
-const DOOR_HEIGHT := 2.9
+## Centre of a picture. Higher than before because the pictures are twice the
+## size; this keeps the bottom rail a comfortable distance off the floor.
+const FRAME_ANCHOR_HEIGHT := 2.15
+const DOOR_WIDTH := 2.4
+const DOOR_HEIGHT := 3.4
 
 enum Surface { FLOOR, WALL, TRIM, CEILING }
 
@@ -59,9 +68,10 @@ const SIDES: Array[float] = [-1.0, 1.0]
 
 class Result extends RefCounted:
 	var mesh: ArrayMesh = null
-	## One per photograph, in hang order. Facing -X, into the hall.
+	## One per photograph, in hang order: bay 0 right, bay 0 left, bay 1
+	## right, ... so she meets them in pairs as she walks.
 	var frame_anchors: Array[Transform3D] = []
-	## One per window, facing +X. Light shafts are spawned from these.
+	## Clerestory openings, facing into the hall. Lights hang off these.
 	var window_anchors: Array[Transform3D] = []
 	## Axis-aligned collision boxes: [{size: Vector3, origin: Vector3}].
 	var colliders: Array[Dictionary] = []
@@ -70,13 +80,25 @@ class Result extends RefCounted:
 	var hall_length: float = 0.0
 
 
+static func frame_count() -> int:
+	return BAY_COUNT * FRAMES_PER_BAY
+
+
 static func bay_z(index: int) -> float:
 	return FIRST_BAY_Z - float(index) * BAY_SPACING
 
 
 static func hall_length() -> float:
-	# A bay of run-out past the last frame so the far end is not cramped.
-	return absf(bay_z(BAY_COUNT - 1)) + BAY_SPACING * 1.6
+	# A bay and a half of run-out past the last pair, so the far end has room
+	# to be dark rather than feeling cut off.
+	return absf(bay_z(BAY_COUNT - 1)) + BAY_SPACING * 1.4
+
+
+## Z positions of the clerestory openings, spread across the bays.
+static func clerestory_z(index: int) -> float:
+	var span := absf(bay_z(BAY_COUNT - 1)) - absf(bay_z(0))
+	var t := (float(index) + 0.5) / float(CLERESTORY_COUNT)
+	return bay_z(0) - span * t
 
 
 static func build() -> Result:
@@ -84,7 +106,7 @@ static func build() -> Result:
 	r.hall_length = hall_length()
 
 	var half_w := HALL_WIDTH * 0.5
-	var z_near := 1.2                      # a little hall behind the player
+	var z_near := 1.6
 	var z_far := -r.hall_length
 
 	var floor_st := SurfaceTool.new()
@@ -99,30 +121,32 @@ static func build() -> Result:
 	_quad_y(ceil_st, Vector3(-half_w, HALL_HEIGHT, z_far),
 		Vector3(half_w, HALL_HEIGHT, z_near), false, 1.0)
 
-	# --- right wall: solid, carries the photographs ---
-	_box(wall_st, Vector3(half_w, 0.0, z_far),
-		Vector3(half_w + WALL_THICKNESS, HALL_HEIGHT, z_near), 0.5)
-
-	# --- left wall: built in pieces so the windows are real openings ---
-	_build_window_wall(wall_st, -half_w, z_near, z_far, r)
+	# --- side walls, both pierced by the clerestory band ---
+	for side in SIDES:
+		_build_side_wall(wall_st, side, half_w, z_near, z_far, r)
 
 	# --- end walls. The near one has a doorway she arrives through. ---
 	_build_near_wall(wall_st, half_w, z_near)
 	_box(wall_st, Vector3(-half_w, 0.0, z_far - WALL_THICKNESS),
 		Vector3(half_w, HALL_HEIGHT, z_far), 0.5)
 
-	# --- trim: skirting, pilasters, cornice, ceiling beams ---
+	# --- trim ---
 	_build_skirting(trim_st, half_w, z_near, z_far)
 	_build_pilasters(trim_st, half_w)
 	_build_cornice(trim_st, half_w, z_near, z_far)
 	_build_ceiling_beams(ceil_st, half_w)
 
-	# --- frame anchors, one per bay on the right wall ---
+	# --- frame anchors: two per bay, right then left ---
 	for i in BAY_COUNT:
-		var pos := Vector3(half_w - 0.02, FRAME_ANCHOR_HEIGHT, bay_z(i))
-		# Facing -X, into the hall. Basis looking along -X with +Y up.
-		var basis := Basis(Vector3(0, 0, 1), Vector3(0, 1, 0), Vector3(-1, 0, 0))
-		r.frame_anchors.append(Transform3D(basis, pos))
+		var z := bay_z(i)
+		# Right wall (+X), facing -X into the hall.
+		r.frame_anchors.append(Transform3D(
+			Basis(Vector3(0, 0, 1), Vector3(0, 1, 0), Vector3(-1, 0, 0)),
+			Vector3(half_w - 0.02, FRAME_ANCHOR_HEIGHT, z)))
+		# Left wall (-X), facing +X into the hall.
+		r.frame_anchors.append(Transform3D(
+			Basis(Vector3(0, 0, -1), Vector3(0, 1, 0), Vector3(1, 0, 0)),
+			Vector3(-half_w + 0.02, FRAME_ANCHOR_HEIGHT, z)))
 
 	# --- collision: simple boxes, not a trimesh. A character controller wants
 	# flat planes, and the mouldings would only snag it. ---
@@ -142,9 +166,9 @@ static func build() -> Result:
 		 "origin": Vector3(0, HALL_HEIGHT * 0.5, z_near + WALL_THICKNESS * 0.5)},
 	]
 
-	r.player_start = Transform3D(Basis(), Vector3(0.0, 0.0, z_near - 1.4))
+	r.player_start = Transform3D(Basis(), Vector3(0.0, 0.0, z_near - 1.8))
 	# He waits in the dark at the far end, a little off-centre.
-	r.companion_end = Transform3D(Basis(), Vector3(-0.7, 0.0, z_far + 2.0))
+	r.companion_end = Transform3D(Basis(), Vector3(-1.1, 0.0, z_far + 2.6))
 
 	# --- assemble, one surface per material ---
 	var mesh := ArrayMesh.new()
@@ -166,24 +190,23 @@ static func build() -> Result:
 
 # --------------------------------------------------------------- wall pieces
 
-static func _build_window_wall(st: SurfaceTool, x: float, z_near: float,
-		z_far: float, r: Result) -> void:
-	var outer := x - WALL_THICKNESS
-	var half_win := WINDOW_WIDTH * 0.5
+## One side wall: solid below the clerestory, pierced above it.
+static func _build_side_wall(st: SurfaceTool, side: float, half_w: float,
+		z_near: float, z_far: float, r: Result) -> void:
+	var inner := side * half_w
+	var outer := side * (half_w + WALL_THICKNESS)
+	var x0 := minf(inner, outer)
+	var x1 := maxf(inner, outer)
 
-	# Windows sit half a bay offset from the frames, so the light lands between
-	# the pictures rather than blowing them out.
-	var centres: Array[float] = []
-	for i in BAY_COUNT:
-		centres.append(bay_z(i) - BAY_SPACING * 0.5)
-
-	# Wall below the sill and above the head run the whole length.
-	_box(st, Vector3(outer, 0.0, z_far), Vector3(x, WINDOW_SILL, z_near), 0.5)
-	_box(st, Vector3(outer, WINDOW_HEAD, z_far), Vector3(x, HALL_HEIGHT, z_near), 0.5)
+	# Below the clerestory sill, and above its head: full length.
+	_box(st, Vector3(x0, 0.0, z_far), Vector3(x1, CLERESTORY_SILL, z_near), 0.5)
+	_box(st, Vector3(x0, CLERESTORY_HEAD, z_far), Vector3(x1, HALL_HEIGHT, z_near), 0.5)
 
 	# Piers between the openings.
+	var half_win := CLERESTORY_WIDTH * 0.5
 	var edges: Array[float] = [z_near]
-	for c in centres:
+	for i in CLERESTORY_COUNT:
+		var c := clerestory_z(i)
 		edges.append(c + half_win)
 		edges.append(c - half_win)
 	edges.append(z_far)
@@ -193,15 +216,21 @@ static func _build_window_wall(st: SurfaceTool, x: float, z_near: float,
 		var a: float = edges[i]
 		var b: float = edges[i + 1]
 		if i % 2 == 0 and a - b > 0.001:
-			_box(st, Vector3(outer, WINDOW_SILL, b),
-				Vector3(x, WINDOW_HEAD, a), 0.5)
+			_box(st, Vector3(x0, CLERESTORY_SILL, b),
+				Vector3(x1, CLERESTORY_HEAD, a), 0.5)
 		i += 1
 
-	# Reveals and a bright pane, so a window reads as a window in grey-box.
-	for c in centres:
-		var mid_y := (WINDOW_SILL + WINDOW_HEAD) * 0.5
-		var basis := Basis(Vector3(0, 0, -1), Vector3(0, 1, 0), Vector3(1, 0, 0))
-		r.window_anchors.append(Transform3D(basis, Vector3(x, mid_y, c)))
+	# Anchors, oriented so local +Z points into the hall. Getting this
+	# backwards once fired every window light through the wall and left the
+	# corridor lit by nothing but the picture accents.
+	var basis := Basis(Vector3(0, 0, -1), Vector3(0, 1, 0), Vector3(1, 0, 0))
+	if side > 0.0:
+		basis = Basis(Vector3(0, 0, 1), Vector3(0, 1, 0), Vector3(-1, 0, 0))
+
+	var mid_y := (CLERESTORY_SILL + CLERESTORY_HEAD) * 0.5
+	for k in CLERESTORY_COUNT:
+		r.window_anchors.append(Transform3D(basis,
+			Vector3(inner, mid_y, clerestory_z(k))))
 
 
 static func _build_near_wall(st: SurfaceTool, half_w: float, z_near: float) -> void:
@@ -231,7 +260,7 @@ static func _build_skirting(st: SurfaceTool, half_w: float, z_near: float,
 static func _build_pilasters(st: SurfaceTool, half_w: float) -> void:
 	var half_p := PILASTER_WIDTH * 0.5
 	for i in BAY_COUNT + 1:
-		# Between the bays, so each photograph sits in its own panel.
+		# Between the bays, so each pair of photographs sits in its own panel.
 		var z := bay_z(i) + BAY_SPACING * 0.5
 		for side in SIDES:
 			var inner := side * (half_w - PILASTER_DEPTH)
@@ -240,8 +269,8 @@ static func _build_pilasters(st: SurfaceTool, half_w: float) -> void:
 				Vector3(maxf(inner, outer), HALL_HEIGHT - CORNICE_HEIGHT, z + half_p), 1.0)
 
 
-## A stepped profile rather than a true lathe: four receding steps read as
-## moulding once raking window light hits them, and cost a handful of boxes.
+## A stepped profile rather than a true lathe: receding steps read as moulding
+## once raking clerestory light hits them, and cost a handful of boxes.
 static func _build_cornice(st: SurfaceTool, half_w: float, z_near: float,
 		z_far: float) -> void:
 	var step_h := CORNICE_HEIGHT / float(CORNICE_STEPS)
@@ -259,8 +288,11 @@ static func _build_cornice(st: SurfaceTool, half_w: float, z_near: float,
 
 static func _build_ceiling_beams(st: SurfaceTool, half_w: float) -> void:
 	var half_b := CEILING_BEAM_WIDTH * 0.5
-	for i in BAY_COUNT + 1:
-		var z := bay_z(i) + BAY_SPACING * 0.5
+	# Twice as many as there are bays, so a nine-metre ceiling still has a
+	# rhythm rather than four lonely beams.
+	var count := BAY_COUNT * 2 + 1
+	for i in count:
+		var z := bay_z(0) + BAY_SPACING * 0.5 - float(i) * BAY_SPACING * 0.5
 		_box(st, Vector3(-half_w, HALL_HEIGHT - CEILING_BEAM_DEPTH, z - half_b),
 			Vector3(half_w, HALL_HEIGHT, z + half_b), 1.0)
 
@@ -275,17 +307,14 @@ static func _box(st: SurfaceTool, a: Vector3, b: Vector3, uv_scale: float) -> vo
 	if lo.is_equal_approx(hi):
 		return
 
-	# -X, +X
 	_quad(st, Vector3(lo.x, lo.y, lo.z), Vector3(lo.x, lo.y, hi.z),
 		Vector3(lo.x, hi.y, hi.z), Vector3(lo.x, hi.y, lo.z), uv_scale)
 	_quad(st, Vector3(hi.x, lo.y, hi.z), Vector3(hi.x, lo.y, lo.z),
 		Vector3(hi.x, hi.y, lo.z), Vector3(hi.x, hi.y, hi.z), uv_scale)
-	# -Z, +Z
 	_quad(st, Vector3(hi.x, lo.y, lo.z), Vector3(lo.x, lo.y, lo.z),
 		Vector3(lo.x, hi.y, lo.z), Vector3(hi.x, hi.y, lo.z), uv_scale)
 	_quad(st, Vector3(lo.x, lo.y, hi.z), Vector3(hi.x, lo.y, hi.z),
 		Vector3(hi.x, hi.y, hi.z), Vector3(lo.x, hi.y, hi.z), uv_scale)
-	# -Y, +Y
 	_quad(st, Vector3(lo.x, lo.y, lo.z), Vector3(hi.x, lo.y, lo.z),
 		Vector3(hi.x, lo.y, hi.z), Vector3(lo.x, lo.y, hi.z), uv_scale)
 	_quad(st, Vector3(lo.x, hi.y, hi.z), Vector3(hi.x, hi.y, hi.z),
