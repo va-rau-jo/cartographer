@@ -1,17 +1,21 @@
 extends CanvasLayer
 ## Where and when. The guessing half of a round.
 ##
-## The WHERE half is a place list rather than the painted world map the plan
-## calls for (§7.1). That map needs Natural Earth vector data, which has to be
-## fetched and baked once (tools/fetch_geo.py) — so this exists to make the
-## round loop playable and testable before the map lands, and it scores through
-## exactly the same haversine path, because each listed place carries its real
-## coordinates.
+## The WHERE half has two forms, and which one leads depends on whether the
+## map has any data:
 ##
-## It is also worth keeping afterwards. Plan §10.6 wants an easier mode for
-## players who would rather not be tested on coordinates; a place list is
-## precisely that, so this becomes the accessible alternative to pinning a map
-## rather than throwaway scaffolding.
+##   * MapWidget, pinned — the real thing (plan §7.1), available once
+##     data/geo/coastlines.json exists. tools/fetch_geo.py bakes it; no host
+##     that serves Natural Earth is reachable from the machine that wrote this,
+##     so the file cannot be committed here.
+##   * A place list — every place in the album, shuffled. It was built first
+##     because it made the round loop playable, and it stays: plan §10.6 wants
+##     an easier mode for players who would rather not be tested on
+##     coordinates, and this is precisely that.
+##
+## Both score through the same haversine path, because the list carries real
+## coordinates and the map's pixels go through the same projection as the
+## scoring.
 ##
 ## The WHEN half is the real calendar dial: decade, then year, then month, and
 ## it only asks for as much precision as the photograph actually carries.
@@ -19,11 +23,18 @@ extends CanvasLayer
 const BODY_SIZE := 20
 const HEADING_SIZE := 26
 
+enum WhereMode { MAP, LIST }
+
 var rounds: RoundController = null
 var album: AlbumSchema.Album = null
 
 var _root: Control = null
 var _place_list: ItemList = null
+var _map: MapWidget = null
+var _map_box: VBoxContainer = null
+var _list_box: VBoxContainer = null
+var _mode_button: Button = null
+var _where_mode: WhereMode = WhereMode.LIST
 var _decade: HSlider = null
 var _year: HSlider = null
 var _month: OptionButton = null
@@ -39,11 +50,19 @@ var _min_year := 1900
 var _max_year := 2026
 
 
-func setup(controller: RoundController, a: AlbumSchema.Album) -> void:
+func setup(controller: RoundController, a: AlbumSchema.Album,
+		coastlines: CoastlineData = null) -> void:
 	rounds = controller
 	album = a
 	_collect_places()
 	_configure_year_range()
+
+	var data := coastlines if coastlines != null else CoastlineData.load_baked()
+	if _map != null:
+		_map.setup(data)
+	# The map leads when there is a map to look at; otherwise the list does,
+	# and the toggle is there either way.
+	_set_where_mode(WhereMode.MAP if not data.is_empty() else WhereMode.LIST)
 
 
 func _ready() -> void:
@@ -134,15 +153,41 @@ func _build() -> void:
 	_heading = _label("Where, and when?", HEADING_SIZE, Color(0.95, 0.92, 0.85))
 	column.add_child(_heading)
 
-	column.add_child(_label("Where was this taken?", BODY_SIZE,
+	var where_row := HBoxContainer.new()
+	where_row.add_theme_constant_override("separation", 12)
+	where_row.add_child(_label("Where was this taken?", BODY_SIZE,
 		Color(0.70, 0.66, 0.60)))
+	var spacer := Control.new()
+	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	where_row.add_child(spacer)
+	_mode_button = Button.new()
+	_mode_button.add_theme_font_size_override("font_size", 15)
+	_mode_button.pressed.connect(_on_mode_pressed)
+	where_row.add_child(_mode_button)
+	column.add_child(where_row)
+
+	_map_box = VBoxContainer.new()
+	_map_box.add_theme_constant_override("separation", 6)
+	column.add_child(_map_box)
+
+	_map = MapWidget.new()
+	_map.custom_minimum_size = Vector2(0, 250)
+	_map.pin_moved.connect(_on_pin_moved)
+	_map.pin_cleared.connect(_on_pin_cleared)
+	_map_box.add_child(_map)
+	_map_box.add_child(_label(
+		"click to place it · drag to move the map · wheel to zoom",
+		14, Color(0.50, 0.47, 0.43)))
+
+	_list_box = VBoxContainer.new()
+	column.add_child(_list_box)
 
 	_place_list = ItemList.new()
 	_place_list.custom_minimum_size = Vector2(0, 230)
 	_place_list.add_theme_font_size_override("font_size", BODY_SIZE)
 	_place_list.allow_reselect = true
 	_place_list.item_selected.connect(_on_place_selected)
-	column.add_child(_place_list)
+	_list_box.add_child(_place_list)
 
 	column.add_child(_separator())
 
@@ -220,8 +265,11 @@ func _separator() -> HSeparator:
 func _on_round_started(_index: int) -> void:
 	_populate()
 	_root.visible = true
-	_submit.disabled = true
 	_place_list.deselect_all()
+	if _map != null:
+		_map.clear_pin()
+		_map.reset_view()
+	_refresh_submit()
 
 	var photo := rounds.active_photo()
 	var precision := AlbumSchema.DatePrecision.YEAR
@@ -252,7 +300,6 @@ func _populate() -> void:
 		_place_list.set_item_disabled(0, true)
 		_place_list.add_item("Load a .ccalbum from the menu to play")
 		_place_list.set_item_disabled(1, true)
-		_submit.disabled = true
 		return
 
 	for place in _places:
@@ -265,8 +312,48 @@ func _populate() -> void:
 		_decade.value = float(decades) * 0.5
 
 
+func _set_where_mode(mode: WhereMode) -> void:
+	_where_mode = mode
+	var have_map := _map != null and _map.coastlines != null \
+		and not _map.coastlines.is_empty()
+	if _map_box != null:
+		_map_box.visible = mode == WhereMode.MAP
+	if _list_box != null:
+		_list_box.visible = mode == WhereMode.LIST
+	if _mode_button != null:
+		_mode_button.text = "Use the list instead" if mode == WhereMode.MAP \
+			else "Use the map instead"
+		# Offering a map with nothing on it is not an offer.
+		_mode_button.disabled = not have_map and mode == WhereMode.LIST
+	_refresh_submit()
+
+
+func _on_mode_pressed() -> void:
+	_set_where_mode(WhereMode.LIST if _where_mode == WhereMode.MAP \
+		else WhereMode.MAP)
+
+
+func _on_pin_moved(_lat: float, _lon: float) -> void:
+	_refresh_submit()
+
+
+func _on_pin_cleared() -> void:
+	_refresh_submit()
+
+
+## She can answer once she has said where, by whichever means is showing.
+func _refresh_submit() -> void:
+	if _submit == null:
+		return
+	if _where_mode == WhereMode.MAP:
+		_submit.disabled = _map == null or not _map.has_pin()
+	else:
+		_submit.disabled = _places.is_empty() \
+			or _place_list.get_selected_items().is_empty()
+
+
 func _on_place_selected(_index: int) -> void:
-	_submit.disabled = false
+	_refresh_submit()
 
 
 func _on_date_changed(_value: float) -> void:
@@ -290,19 +377,37 @@ func _refresh_date_label() -> void:
 
 
 func _on_submit() -> void:
-	var selected := _place_list.get_selected_items()
-	if selected.is_empty() or rounds == null:
+	if rounds == null:
 		return
 
-	var place: Dictionary = _places[selected[0]]
 	var date := AlbumSchema.PhotoDate.new()
 	date.year = _guess_year()
 	if _month_row.visible:
 		date.month = _month.get_selected_id()
 
+	var lat := NAN
+	var lon := NAN
+	var label := ""
+
+	if _where_mode == WhereMode.MAP:
+		if _map == null or not _map.has_pin():
+			return
+		var pin := _map.pin_lat_lon()
+		lat = pin.x
+		lon = pin.y
+		# What she gets told back is where she pointed, in words.
+		label = MapWidget.format_lat_lon(lat, lon)
+	else:
+		var selected := _place_list.get_selected_items()
+		if selected.is_empty():
+			return
+		var place: Dictionary = _places[selected[0]]
+		lat = float(place["lat"])
+		lon = float(place["lon"])
+		label = String(place["label"])
+
 	_root.visible = false
-	rounds.submit_guess(float(place["lat"]), float(place["lon"]), date,
-		String(place["label"]))
+	rounds.submit_guess(lat, lon, date, label)
 
 
 func _on_guess_submitted(_index: int) -> void:
