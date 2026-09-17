@@ -1,0 +1,105 @@
+extends Node
+## Photographs the album editor with a part-filled album in it.
+##
+##   xvfb-run -a godot --path . --script tools/run_diag_editor.gd
+##
+## The editor is the densest screen in the game — three columns and about forty
+## controls — and a layout that reads fine as a node tree can still come out
+## with the detail panel two pixels wide. This puts real photographs in it and
+## takes a picture.
+
+const OUT_DIR := "user://shots"
+const SHOT_SIZE := Vector2i(1600, 900)
+
+const PLACES := [
+	[43.7696, 11.2558, "Florence, Italy"],
+	[54.4858, -0.6206, "Whitby, England"],
+	[64.1466, -21.9426, "Reykjavik, Iceland"],
+	[35.0116, 135.7681, "Kyoto, Japan"],
+]
+
+
+func _ready() -> void:
+	await get_tree().process_frame
+	_run()
+
+
+func _run() -> void:
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(OUT_DIR))
+	var window := get_window()
+	window.size = SHOT_SIZE
+
+	# The SCENE, not the script: the .tscn carries the full-rect anchors, and
+	# instantiating the script alone gives a Control with no size — which is
+	# how this tool first "found" a squashed three-column layout that was
+	# nothing of the kind.
+	var scene := load("res://scenes/editor/editor.tscn") as PackedScene
+	if scene == null:
+		print("scenes/editor/editor.tscn did not load")
+		get_tree().quit(3)
+		return
+
+	var screen: Control = scene.instantiate()
+	window.add_child(screen)
+	await get_tree().process_frame
+
+	# Four photographs, the way the editor would have them after four adds,
+	# plus a folder listing so the left column has something in it.
+	var offered: Array = []
+	for i in 12:
+		var file := Platform.PickedFile.new()
+		file.name = "IMG_%04d.jpg" % (i + 1)
+		file.size = 2_100_000 + i * 13_000
+		offered.append(file)
+	screen.session.set_sources(offered)
+
+	var noise := FastNoiseLite.new()
+	for i in PLACES.size():
+		noise.seed = 400 + i
+		noise.frequency = 0.03
+		var img := noise.get_image(320, 240)
+		img.convert(Image.FORMAT_RGB8)
+		var error: String = screen.session.add_photo(
+			"IMG_%04d.jpg" % (i + 1), img.save_jpg_to_buffer(0.9))
+		if not error.is_empty():
+			print("add failed: %s" % error)
+			continue
+		var photo: AlbumSchema.Photo = screen.session.slot_at(i).photo
+		photo.truth.lat = PLACES[i][0]
+		photo.truth.lon = PLACES[i][1]
+		photo.truth.place_label = PLACES[i][2]
+		photo.truth.date.year = 1961 + i * 6
+		photo.truth.date.month = 6
+		photo.content.title = "Photograph %d" % (i + 1)
+		photo.content.description = "What happened that week, in her words."
+		photo.curator.hints = PackedStringArray([
+			"Warm stone, and you complained all week.",
+			"Somewhere in Europe, that summer.",
+			"It was %s." % PLACES[i][2],
+		])
+
+	screen.session.album.title = "For Maggie"
+	screen.session.album.curator_voice_name = "Tom"
+	screen.session.album.curator_player_name = "Maggie"
+	screen.session.album.closing_line = "There you are."
+	screen._read_album_fields()
+	screen._select(1)
+
+	for _i in 4:
+		await get_tree().process_frame
+	_save(window, "40_editor")
+
+	print("")
+	print("slots          %d of %d" % [screen.session.slot_count(),
+		EditorSession.MAX_PHOTOS])
+	print("sources        %d" % screen.session.source_count())
+	print("assets held    %d KB" % (screen.session.total_asset_bytes() / 1024))
+	print("exportable     %s" % ("yes" if screen.session.can_export() else "no"))
+	print("problems       %d" % screen.session.problems(true).size())
+	get_tree().quit(0)
+
+
+func _save(window: Window, name: String) -> void:
+	var img := window.get_texture().get_image()
+	var path := "%s/%s.png" % [OUT_DIR, name]
+	print("  %-16s %s" % [name, "ok" if img.save_png(path) == OK else "FAILED"])

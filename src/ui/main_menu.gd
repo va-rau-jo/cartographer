@@ -137,9 +137,10 @@ func _enter_gallery() -> void:
 
 
 func _on_editor_pressed() -> void:
-	# M5.
-	_set_status("[color=gray]The album editor is not built yet (M5). "
-		+ "For now, generate a test album with tools/make_test_album.gd.[/color]")
+	var err := get_tree().change_scene_to_file("res://scenes/editor/editor.tscn")
+	if err != OK:
+		_set_status("[color=#e08080]Could not open the editor (error %d).[/color]"
+			% err)
 
 
 func _on_quit_pressed() -> void:
