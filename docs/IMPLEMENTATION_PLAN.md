@@ -523,11 +523,11 @@ The costs: **OAuth verification is required** (workable for a gift by staying in
 | # | Milestone | State | What remains |
 |---|---|---|---|
 | **M0** | Foundation | **done** | — |
-| **M1** | Grey-box + style test | **done** | The go/no-go was made from container renders, not from a browser. Nobody has yet opened the web build. |
+| **M1** | Grey-box + style test | **done** | The go/no-go shot has now been taken *in a browser* (`tools/verify_web.py`), which was M1's actual exit criterion. |
 | **M2** | Vertical slice | **done** | Album schema, ZIP load, blur tiers, uniform-frame/variable-mat, the round FSM, HUD, guess input and scoring all exist and are tested. Still not played end to end by a human with a real album. |
 | **M3** | Map & calendar | **mostly** | Map widget, pin, zoom/pan, calendar dial, real scoring and the results screen are in. The Natural Earth bake is **not**: no host that serves it is reachable from this environment, so `tools/fetch_geo.py` has to be run once on a machine with network (§16.6). |
 | **M4** | Curator | **part** | Text bubbles with punctuation pacing, the hint ladder, costs and fatigue are in. Idle barks, wrong-guess lines and hall dimming are not. Nothing is baked with Claude yet. |
-| **M5** | Editor | **not started** | The whole thing. This is now the largest single gap, and the one that decides whether the game can be filled with real photographs. |
+| **M5** | Editor | **mostly** | Folder picking, ten slots, hang order, per-photo metadata, map pinning, EXIF prefill, validation, export and reopening all work, with 75 tests covering the pipeline from ten JPEGs to a loadable `.ccalbum`. Missing: a thumbnail grid (the source list is filenames), draft autosave, and the Claude bake. |
 | **M6** | Characters | **part** | The figures exist, are drawn rather than voxelled (§16.2), walk, turn to camera and cast shadows. Customization slots, palette UI and profile save are not built. |
 | **M7** | Art pass | **not started** | Both spaces are grey-box. Trim sheets, Blender AO/GI bakes, prop dressing. |
 | **M8** | Narrative | **done** | Hospital opening, "take his hand", the transition, the hug, the fade and the return to the menu all play. No music or ambience. |
@@ -572,16 +572,15 @@ crossing all of it at an old woman's pace is most of a minute of nothing.
 
 In order, most valuable first.
 
-1. **Open the web build in a browser.** It exports (39 MB raw, ~10 MB gzipped,
-   `index.pck` 183 KB) and CI publishes it, but no human has yet loaded it.
-   Everything downstream assumes it works. Set Pages to "GitHub Actions" as its
-   source and push.
+1. **Deploy to Pages and open your own URL.** The build itself is verified in
+   a browser (§16.8), but that deployment is not. Set Pages to "GitHub
+   Actions" as its source and push.
 2. **Run `python tools/fetch_geo.py` once** and commit `data/geo/coastlines.json`.
    Until then the map draws a graticule and the guess panel falls back to its
    place list (§16.6).
-3. **Build the editor (M5).** The game is playable but cannot yet be *filled*:
-   there is no way to turn a folder of photographs into a `.ccalbum` except
-   `tools/make_test_album.gd`. Nothing else matters as much.
+3. **Build one real album in the editor and play it.** Everything up to now
+   has been exercised with generated test data; the first album made from real
+   photographs is where the remaining gaps will show.
 4. **Bake one real album's curator lines with Claude**, and read all thirty
    hint lines. Then tune the hint economy against them (M4).
 5. **The art pass (M7).** Both spaces are grey-box and will stay convincing
@@ -680,7 +679,27 @@ banding across the walls and ceiling that read as ribbed plaster. 0.08 / 4.0
 removes it entirely while keeping the pictures' shadows attached to their
 frames. `tools/diag_shadows.gd` is the four-way comparison that settled it.
 
-### 16.8 Look at it, always
+### 16.8 The web build is verified in a browser, and how
+
+`tools/verify_web.py` serves the export over HTTP, opens it in headless
+Chromium with software GL, waits for the engine banner and for the gallery to
+report itself built, and fails on any JavaScript error. Verified 2026-09-17:
+WebGL 2 through the Compatibility renderer, Emscripten single-threaded, no
+GDExtension, no page errors, ten frames and six windows built, keyboard input
+reaching the game.
+
+Two traps in writing that, both worth knowing:
+
+- **Use a threading HTTP server.** A single-threaded one deadlocks: the
+  browser opens several keep-alive connections at once for `index.js`,
+  `index.wasm` and `index.pck`, and the unserved ones sit until they time out.
+  The symptom is a build that appears never to boot.
+- **Never `time.sleep` in a Playwright sync script.** The sync API only
+  dispatches events while you are calling into it, so a poll loop that sleeps
+  in Python receives no console messages at all — which looks exactly like a
+  broken build. `page.wait_for_timeout` instead.
+
+### 16.9 Look at it, always
 
 Four rendering bugs, and everything in §16.2 and §16.7, were invisible in the
 numbers and obvious in a picture: window spotlights firing through the wall,
@@ -691,6 +710,7 @@ sash, a head twice life size, and an empty bed where a lambda had written
 pixels into a copy of its own canvas.
 
 Hence `tools/render_shots.gd`, `tools/render_ending.gd`,
-`tools/render_hospital.gd` and the `diag_*` tools. They run headless under
+`tools/render_hospital.gd`, `tools/diag_editor.gd` (which found "lat" stacked
+as three vertical letters beside a spin box) and the other `diag_*` tools. They run headless under
 xvfb with software GL, so CI can take them too. **Any change to geometry,
 lighting or a drawn figure should be looked at before it is called done.**

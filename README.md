@@ -14,10 +14,10 @@ The full design and milestone breakdown is in **[docs/IMPLEMENTATION_PLAN.md](do
 
 ## Status
 
-**The whole arc plays.** Hospital room, transition, ten rounds in the gallery,
-the hug, the fade, the results screen, back to the menu. It is grey-box
-throughout and the album editor does not exist yet, so the only way to fill it
-with photographs is `tools/make_test_album.gd`.
+**The whole arc plays, and it plays in a browser.** Hospital room,
+transition, ten rounds in the gallery, the hug, the fade, the results screen,
+back to the menu — plus an editor that turns a folder of your own photographs
+into a `.ccalbum`. It is grey-box throughout; the art pass has not happened.
 
 | Area                                                | State                                      |
 | --------------------------------------------------- | ------------------------------------------ |
@@ -34,11 +34,11 @@ with photographs is `tools/make_test_album.gd`.
 | Gallery hallway, frames, characters                 | grey-box, walkable                         |
 | Platform abstraction (web / desktop)                | done, untested in a real browser           |
 | Web export + Pages deploy                           | working; **never yet opened in a browser** |
-| Album editor                                        | not started — the largest gap              |
+| Album editor                                        | done, 75 tests                             |
+| Web build in a real browser                         | **verified** — `tools/verify_web.py`       |
 | Art pass, music, customization, curator bake        | not started                                |
 
-**683 tests, 0 failed.** The two things only you can check are at the bottom of
-this file.
+**758 tests, 0 failed.**
 
 ---
 
@@ -73,9 +73,20 @@ Blender-baked AO in the trim sheets.
 godot --path .
 ```
 
-Menu → **Walk the gallery (no album)** to walk the grey-box.
-**WASD** to walk, **F11** for the debug overlay, **Esc** to release the mouse
-(press again to go back to the menu).
+**Begin** plays the whole arc, starting in the hospital room. **Walk the
+gallery (no album)** skips straight to the hall with placeholder pictures.
+
+|          |                                                                                 |
+| -------- | ------------------------------------------------------------------------------- |
+| **WASD** | walk                                                                            |
+| **E**    | look at the photograph you are standing at (and, in the opening, take his hand) |
+| **U**    | clear the photograph a little, at a cost                                        |
+| **H**    | ask him, at a bigger cost                                                       |
+| **Esc**  | release the mouse, step back out of a guess, or skip the ending                 |
+| **F11**  | debug overlay                                                                   |
+
+With no album loaded the pictures are placeholders and there is nothing behind
+them to guess; the guess panel says so rather than showing an empty box.
 
 ### Run the tests
 
@@ -120,7 +131,8 @@ A pass looks like this, and the process exits 0:
 [PASS] ending     67 passed, 0 failed
 [PASS] hospital   27 passed, 0 failed
 [PASS] map        72 passed, 0 failed
-683 passed, 0 failed
+[PASS] editor     75 passed, 0 failed
+758 passed, 0 failed
 ```
 
 The album suite takes about fourteen seconds (it generates real images); the
@@ -179,6 +191,19 @@ On Windows, drop `xvfb-run -a` and the game opens a window instead.
 
 **Change geometry, lighting or a drawn figure, then look at the result.** The
 numbers cannot see a blindfold where a pair of closed eyes should be.
+
+### Check the web build in a browser
+
+```bash
+pip install playwright && playwright install chromium
+python tools/verify_web.py            # after exporting to build/web
+```
+
+It serves the build over HTTP (a `file://` URL cannot fetch WebAssembly),
+opens it in headless Chromium, waits for the engine, clicks into the gallery
+and fails on any JavaScript error. Verified 2026-09-17: boots on WebGL 2
+through the Compatibility renderer, single-threaded, no errors, hallway built,
+keyboard input reaching the game.
 
 ### Export for the web
 
@@ -330,20 +355,21 @@ it.
 
 In order:
 
-1. **Open the web build in a browser.** Nobody has. Everything else assumes it
-   works.
+1. **Deploy to Pages and open your own URL.**
 2. **Run `tools/fetch_geo.py`** and commit `data/geo/coastlines.json`.
-3. **Build the album editor** (plan §9, M5). The game plays but cannot be
-   filled with your own photographs yet.
-4. Bake one real album's curator lines and read all thirty hint lines.
+3. **Build one real album in the editor**, from your own folder, and play it
+   through. That is the first end-to-end use of the thing.
+4. Bake that album's curator lines and read all thirty hint lines.
 5. The art pass.
 
 ### Only you can do these
 
 - **Open `https://<your-user>.github.io/<repo>/` and see whether it loads.**
-  Set _Settings → Pages → Source: GitHub Actions_ first, then push to `main`.
+  The build itself is verified in a browser (above); what is not verified is
+  _your_ Pages deployment. Set _Settings → Pages → Source: GitHub Actions_
+  first, then push to `main`.
 - **Check the export templates installed**: Godot → _Editor → Manage Export
   Templates_ should say `4.7.stable`. See the section above if the download
   failed.
-- **Run `tools\run_tests.bat`** and confirm 683 passing on your machine, not
+- **Run `tools\run_tests.bat`** and confirm 758 passing on your machine, not
   just in the container.
