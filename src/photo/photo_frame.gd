@@ -25,9 +25,19 @@ const BOARD_DEPTH := 0.035
 const TIER_BLUR := [3.4, 2.8, 2.2, 1.6]
 const REVEALED_BLUR := 0.0
 
+## Depth of the volume in front of the picture that counts as "at this
+## photograph". Generous, because a two-metre picture is looked at from a
+## couple of metres back.
+const INTERACTION_DEPTH := 2.9
+const INTERACTION_WIDTH := 2.6
+const INTERACTION_HEIGHT := 2.6
+
 var photo: AlbumSchema.Photo = null
 var tier: int = 0
 var revealed: bool = false
+## Entered by the player; the round controller watches this to know she has
+## arrived at a picture.
+var interaction_area: Area3D = null
 
 var _material: ShaderMaterial = null
 var _accent: SpotLight3D = null
@@ -46,6 +56,7 @@ func setup(p: AlbumSchema.Photo, tex: Texture2D) -> void:
 	_build_moulding()
 	_build_surface(tex)
 	_build_accent()
+	_build_interaction()
 
 	set_tier(0)
 
@@ -136,6 +147,25 @@ func _build_moulding() -> void:
 		mi.position = piece["pos"]
 		mi.material_override = mat
 		add_child(mi)
+
+
+func _build_interaction() -> void:
+	interaction_area = Area3D.new()
+	interaction_area.name = "Interaction"
+	# Only the player is on layer 1; nothing else should trip this.
+	interaction_area.collision_layer = 0
+	interaction_area.collision_mask = 1
+	interaction_area.monitorable = false
+
+	var shape := BoxShape3D.new()
+	shape.size = Vector3(INTERACTION_WIDTH, INTERACTION_HEIGHT, INTERACTION_DEPTH)
+	var cs := CollisionShape3D.new()
+	cs.shape = shape
+	# Centred in front of the picture and dropped toward standing height, so
+	# the volume is where a person is rather than where the frame is.
+	cs.position = Vector3(0, -0.45, INTERACTION_DEPTH * 0.5)
+	interaction_area.add_child(cs)
+	add_child(interaction_area)
 
 
 func _build_accent() -> void:

@@ -36,6 +36,10 @@ var frames: Array[PhotoFrame] = []
 var player: PlayerController = null
 var companion: PixelFigure = null
 
+var rounds: RoundController = null
+var hud: Node = null
+var guess_panel: Node = null
+
 var _shafts: Array[LightShaft] = []
 
 
@@ -47,6 +51,7 @@ func _ready() -> void:
 	_build_windows()
 	_build_frames()
 	_build_characters()
+	_build_round_logic()
 
 	GameState.phase = GameState.Phase.GALLERY_IDLE
 	CCLog.info("gallery", "built: %d frames, %d windows, %d shafts, hall %.1f m"
@@ -326,6 +331,26 @@ func _build_characters() -> void:
 	companion.build(PixelFigure.Palette.husband())
 	companion.transform = hallway.companion_end
 	companion.rotation_degrees = Vector3(0, 180, 0)
+
+
+## The round machine, the HUD and the guess panel. Built last, because each
+## needs the frames and the player to already exist.
+func _build_round_logic() -> void:
+	hud = load("res://src/ui/hud.gd").new()
+	hud.name = "HUD"
+	add_child(hud)
+
+	guess_panel = load("res://src/ui/guess_panel.gd").new()
+	guess_panel.name = "GuessPanel"
+	add_child(guess_panel)
+
+	rounds = RoundController.new()
+	rounds.name = "RoundController"
+	add_child(rounds)
+	rounds.setup(AlbumService.album(), frames, player)
+
+	hud.setup(rounds)
+	guess_panel.setup(rounds, AlbumService.album())
 
 
 func camera() -> Camera3D:

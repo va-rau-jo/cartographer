@@ -54,7 +54,14 @@ const SHOTS := [
 	 "pose_player": Vector3(0.0, 0.0, -4.6),
 	 "note": "Roughly the playing camera: her figure on screen, hall beyond."},
 
-	{"name": "08_figure_close",
+	{"name": "08_guessing",
+	 "pos": Vector3(-2.4, 2.05, -1.0), "look": Vector3(3.4, 2.05, -3.4), "fov": 60.0,
+	 "pose_player": Vector3(1.6, 0.0, -3.4),
+	 "open_round": 0,
+	 "note": "A round open: the HUD's spend panel, the guess panel, and a"
+		+ " photograph still at tier 0."},
+
+	{"name": "09_figure_close",
 	 "pos": Vector3(0.1, 1.42, -5.9), "look": Vector3(1.75, 1.05, -7.4), "fov": 46.0,
 	 "pose_player": Vector3(2.0, 0.0, -7.4),
 	 "note": "Close on the figure: is the pixel resolution and shading"
@@ -85,6 +92,8 @@ func _initialize() -> void:
 	var written: PackedStringArray = PackedStringArray()
 
 	for shot in SHOTS:
+		if shot.has("open_round"):
+			gallery.rounds.debug_open(int(shot["open_round"]))
 		if shot.has("pose_player"):
 			gallery.player.position = shot["pose_player"]
 			# Face the wall she is standing at, so the drawn view the figure
