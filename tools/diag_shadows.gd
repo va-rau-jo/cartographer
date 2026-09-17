@@ -54,6 +54,11 @@ func _run() -> void:
 	for _i in 10:
 		await get_tree().process_frame
 
+	# Drop the gallery's fade-in from white (see tools/render_shots.gd).
+	var fade := gallery.get_node_or_null("ArrivalFade")
+	if fade != null:
+		fade.free()
+
 	var lights: Array[Light3D] = []
 	for node in gallery.find_children("*", "Light3D", true, false):
 		lights.append(node as Light3D)

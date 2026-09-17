@@ -58,6 +58,12 @@ func _run() -> void:
 	for _i in WARMUP_FRAMES:
 		await get_tree().process_frame
 
+	# Drop the gallery's fade-in from white, or the shot is taken through it
+	# (see tools/render_shots.gd).
+	var fade := gallery.get_node_or_null("ArrivalFade")
+	if fade != null:
+		fade.free()
+
 	_fake_a_finished_session(gallery)
 
 	# Straight to the ending, the way RoundController._finish_round would.

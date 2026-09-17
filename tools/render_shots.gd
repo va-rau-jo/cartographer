@@ -89,6 +89,14 @@ func _initialize() -> void:
 	for _i in WARMUP_FRAMES:
 		await process_frame
 
+	# Drop the arrival fade. The gallery opens by fading in from white over
+	# three seconds, and at software-rendering frame rates that fade was still
+	# half up when the shutter went — every shot came out looking hazy and
+	# overexposed, which was read for a while as a lighting problem.
+	var fade := gallery.get_node_or_null("ArrivalFade")
+	if fade != null:
+		fade.free()
+
 	var written: PackedStringArray = PackedStringArray()
 
 	for shot in SHOTS:
