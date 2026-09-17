@@ -15,6 +15,21 @@ extends Node3D
 const FOG_DENSITY := 0.009
 const AMBIENT_ENERGY := 0.20
 
+## Matches the white the hospital scene fades out to.
+const ARRIVAL_COLOR := Color(0.97, 0.95, 0.90)
+const ARRIVAL_FADE_TIME := 3.0
+
+## Shadow bias for every shadow-casting light in the hall.
+##
+## Godot's defaults (0.03 / 1.0) give bad acne here, and it had been in every
+## render for two milestones read as corrugated plaster: the clerestory light
+## strikes the opposite wall at a grazing angle, which is the worst case for
+## shadow-map self-shadowing. 0.08 / 4.0 removes the banding completely while
+## keeping the pictures' cast shadows attached to their frames; higher values
+## start to detach them (see tools/diag_shadows.gd, which is what settled it).
+const SHADOW_BIAS := 0.08
+const SHADOW_NORMAL_BIAS := 4.0
+
 @export var show_debug_markers := false
 
 ## Fake volumetric shafts are OFF by default.
@@ -39,6 +54,8 @@ var companion: PixelFigure = null
 var rounds: RoundController = null
 var hud: Node = null
 var guess_panel: Node = null
+var ending: EndingSequence = null
+var results: Node = null
 
 var _shafts: Array[LightShaft] = []
 
@@ -52,6 +69,7 @@ func _ready() -> void:
 	_build_frames()
 	_build_characters()
 	_build_round_logic()
+	_build_arrival()
 
 	GameState.phase = GameState.Phase.GALLERY_IDLE
 	CCLog.info("gallery", "built: %d frames, %d windows, %d shafts, hall %.1f m"
@@ -182,6 +200,8 @@ func _build_windows() -> void:
 		light.spot_angle = 62.0
 		light.spot_angle_attenuation = 0.6
 		light.shadow_enabled = true
+		light.shadow_bias = SHADOW_BIAS
+		light.shadow_normal_bias = SHADOW_NORMAL_BIAS
 		light.position = Vector3(0, 0.2, 0.3)
 		# A spot shines along its local -Z. The anchor's local -Z points back
 		# through the wall, so this turns it around to face into the hall and
@@ -222,6 +242,8 @@ func _build_windows() -> void:
 	entrance.light_energy = 1.7
 	entrance.omni_range = 9.5
 	entrance.shadow_enabled = true
+	entrance.shadow_bias = SHADOW_BIAS
+	entrance.shadow_normal_bias = SHADOW_NORMAL_BIAS
 	entrance.position = Vector3(0, 2.6, 0.9)
 	add_child(entrance)
 
@@ -333,9 +355,11 @@ func _build_characters() -> void:
 	companion.rotation_degrees = Vector3(0, 180, 0)
 
 
-## The round machine, the HUD and the guess panel. Built last, because each
-## needs the frames and the player to already exist.
+## The round machine, the HUD, the guess panel, the ending and the results.
+## Built last, because each needs the frames and the figures to already exist.
 func _build_round_logic() -> void:
+	var album := AlbumService.album()
+
 	hud = load("res://src/ui/hud.gd").new()
 	hud.name = "HUD"
 	add_child(hud)
@@ -347,10 +371,33 @@ func _build_round_logic() -> void:
 	rounds = RoundController.new()
 	rounds.name = "RoundController"
 	add_child(rounds)
-	rounds.setup(AlbumService.album(), frames, player)
+	rounds.setup(album, frames, player)
+
+	ending = EndingSequence.new()
+	ending.name = "EndingSequence"
+	ending.setup(player, companion, album)
+	add_child(ending)
+
+	# Above the fade, so the numbers arrive on a white screen rather than under
+	# it. The results screen shows itself on EventBus.ending_finished.
+	results = load("res://src/ui/results_screen.gd").new()
+	results.name = "ResultsScreen"
+	add_child(results)
+	results.setup(album)
 
 	hud.setup(rounds)
-	guess_panel.setup(rounds, AlbumService.album())
+	guess_panel.setup(rounds, album)
+
+
+## She arrives out of the light the hospital scene ended on, so there is no
+## cut between the two scenes — the white simply clears. Entered straight from
+## the menu it is the same fade from a colour nobody was looking at, which
+## costs nothing and still beats popping into a lit room.
+func _build_arrival() -> void:
+	var fade := SceneFade.new()
+	fade.name = "ArrivalFade"
+	add_child(fade)
+	fade.fade_in(ARRIVAL_COLOR, ARRIVAL_FADE_TIME)
 
 
 func camera() -> Camera3D:
@@ -358,6 +405,15 @@ func camera() -> Camera3D:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	# During the ending, Escape skips to the results rather than dropping her
+	# back to the menu mid-hug.
+	if GameState.phase == GameState.Phase.ENDING:
+		if event.is_action_pressed(&"ui_cancel_custom") and ending != null \
+				and ending.is_running():
+			ending.skip()
+			get_viewport().set_input_as_handled()
+		return
+
 	# Without this the captured mouse has no way out of a grey-box build.
 	if event.is_action_pressed(&"ui_cancel_custom"):
 		if Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:

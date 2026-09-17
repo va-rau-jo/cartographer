@@ -40,6 +40,17 @@ func load_album_bytes(bytes: PackedByteArray) -> bool:
 	return true
 
 
+## Start a fresh playthrough of whatever is already loaded. The loop is one
+## ten-picture room and then back to the menu (plan §2.1), so "play again"
+## means clearing the round state — not re-reading the ZIP and re-decoding
+## forty images.
+func reset_session() -> void:
+	var count := AlbumSchema.PHOTOS_PER_ALBUM
+	if has_album():
+		count = album().hung_photos().size()
+	GameState.reset_for_album(count)
+
+
 func unload() -> void:
 	if loaded != null:
 		loaded.close()

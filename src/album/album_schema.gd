@@ -322,6 +322,10 @@ class Album extends RefCounted:
 	## He should use her name. Small field, large effect.
 	var curator_player_name: String = ""
 	var curator_style: String = ""
+	## The one thing he says at the end, before the hug. Left empty by default
+	## and never generated: the last line of someone's gift is the author's to
+	## write, and no line at all is better than a line he would not have said.
+	var closing_line: String = ""
 
 	var scoring := ScoringConfig.new()
 	## Wall order down the hallway. Dramatic, not chronological: open warm,
@@ -342,6 +346,7 @@ class Album extends RefCounted:
 		a.curator_voice_name = str(cur.get("voiceName", ""))
 		a.curator_player_name = str(cur.get("playerName", ""))
 		a.curator_style = str(cur.get("style", ""))
+		a.closing_line = str(cur.get("closingLine", ""))
 
 		a.scoring = ScoringConfig.from_dict(d.get("scoring", {}))
 		a.hang_order = PackedStringArray(d.get("hangOrder", []))
@@ -366,6 +371,7 @@ class Album extends RefCounted:
 				"voiceName": curator_voice_name,
 				"playerName": curator_player_name,
 				"style": curator_style,
+				"closingLine": closing_line,
 			},
 			"scoring": scoring.to_dict(),
 			"hangOrder": Array(hang_order),

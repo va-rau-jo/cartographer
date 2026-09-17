@@ -196,9 +196,11 @@ func purchase_hint() -> String:
 	return line
 
 
-## Commit a guess. `date` may be a year-only PhotoDate.
+## Commit a guess. `guess_date` may be a year-only PhotoDate. `guess_label` is
+## only ever shown back to her on the results screen ("you said Lisbon"), so it
+## is optional and never scored.
 func submit_guess(guess_lat: float, guess_lon: float,
-		guess_date: AlbumSchema.PhotoDate) -> void:
+		guess_date: AlbumSchema.PhotoDate, guess_label: String = "") -> void:
 	if GameState.phase != GameState.Phase.GUESSING or _active < 0:
 		return
 
@@ -220,6 +222,15 @@ func submit_guess(guess_lat: float, guess_lon: float,
 
 	var breakdown := Scoring.score_round(photo, guess_lat, guess_lon,
 		guess_date, spent, _scoring())
+	# What she actually said, for the results screen. Kept out of Scoring so
+	# that stays a pure function of the numbers.
+	breakdown["guess_label"] = guess_label
+	breakdown["guess_date_label"] = guess_date.label()
+	breakdown["guess_lat"] = guess_lat
+	breakdown["guess_lon"] = guess_lon
+	breakdown["photo_id"] = photo.id
+	breakdown["hints_used"] = (GameState.hints_taken[_active] as Array).size()
+	breakdown["unblur_tier"] = int(GameState.unblur_tiers[_active])
 	GameState.results[_active] = breakdown
 
 	GameState.phase = GameState.Phase.SCORED

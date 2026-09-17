@@ -29,3 +29,7 @@ signal curator_line_finished()
 # --- session ---
 signal session_completed(total_score: float)
 signal ending_started()
+## The hug is over and the hall has faded out. The results screen waits for
+## this rather than for session_completed, so nothing lands on top of the
+## ending (the game ends with the hug; the numbers come after).
+signal ending_finished()

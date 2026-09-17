@@ -7,10 +7,17 @@ extends SceneTree
 ## to user://test_report.txt, because stdout from a headless run is easy to
 ## lose to pipe buffering.
 ##
-## Note: this script is compiled before the project's autoloads are registered
-## as GDScript globals, so it must not reference `Log`, `Platform` and friends
-## by name. Suites loaded below are compiled later and can use them freely.
-## (The logger silences itself for test runs — see logger.gd.)
+## This file does almost nothing on purpose. Two constraints shape it:
+##
+##   1. It is compiled BEFORE the project's autoloads are registered as
+##      GDScript globals, so it must not name `Platform`, `GameState` and
+##      friends. (The logger silences itself for test runs — see cc_log.gd.)
+##   2. During `_initialize()` the root Window is not yet inside the tree, so
+##      anything added to it has no working `_ready()` and no global
+##      transforms. Tests that build real nodes need a live tree.
+##
+## So the suite list lives here and the work happens in tests/test_host.gd,
+## which runs from its own `_ready()` — by which time the tree is live.
 
 const SUITES := [
 	"res://tests/test_geo.gd",
@@ -19,44 +26,19 @@ const SUITES := [
 	"res://tests/test_album.gd",
 	"res://tests/test_geometry.gd",
 	"res://tests/test_round.gd",
+	"res://tests/test_ending.gd",
+	"res://tests/test_hospital.gd",
 ]
-
-const REPORT_PATH := "user://test_report.txt"
 
 
 func _initialize() -> void:
-	var lines: PackedStringArray = PackedStringArray()
-	lines.append("Chrono Cartographer — test run")
-	lines.append("==============================")
+	var host_script := load("res://tests/test_host.gd") as GDScript
+	if host_script == null:
+		push_error("could not load tests/test_host.gd")
+		quit(2)
+		return
 
-	var total_passed := 0
-	var total_failed := 0
-	var started := Time.get_ticks_msec()
-
-	for path in SUITES:
-		var script := load(path) as GDScript
-		if script == null:
-			lines.append("[FAIL] could not load %s" % path)
-			total_failed += 1
-			continue
-
-		var suite: Object = script.new()
-		var t0 := Time.get_ticks_msec()
-		var result: TestFramework = suite.run()
-		total_passed += result.passed
-		total_failed += result.failed
-		lines.append("%s  (%d ms)" % [result.report(), Time.get_ticks_msec() - t0])
-
-	lines.append("------------------------------")
-	lines.append("%d passed, %d failed, %d ms total"
-		% [total_passed, total_failed, Time.get_ticks_msec() - started])
-
-	var text := "\n".join(lines)
-	print("\n" + text + "\n")
-
-	var f := FileAccess.open(REPORT_PATH, FileAccess.WRITE)
-	if f != null:
-		f.store_string(text + "\n")
-		f.close()
-
-	quit(0 if total_failed == 0 else 1)
+	var host: Node = host_script.new()
+	host.name = "TestHost"
+	host.suites = PackedStringArray(SUITES)
+	root.add_child(host)

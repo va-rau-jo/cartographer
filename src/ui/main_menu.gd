@@ -116,10 +116,14 @@ func _on_load_pressed() -> void:
 	Platform.pick_album_file()
 
 
+## The real start: the hospital room, which hands over to the gallery itself
+## once she goes in. "Walk the gallery" below skips it.
 func _on_play_pressed() -> void:
-	# Straight into the gallery. M8 puts the hospital scene and the transition
-	# into his mind in front of this; for now it is the walkable grey-box.
-	_enter_gallery()
+	AlbumService.reset_session()
+	var err := get_tree().change_scene_to_file("res://scenes/hospital/hospital.tscn")
+	if err != OK:
+		_set_status("[color=#e08080]Could not open the opening scene (error %d).[/color]"
+			% err)
 
 
 ## The gallery hangs placeholder images when no album is loaded, so the space

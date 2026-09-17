@@ -29,6 +29,8 @@ var _arm: SpringArm3D = null
 var _yaw_pivot: Node3D = null
 var _yaw := 0.0
 var _examining := false
+## During the ending, something else drives both her body and the camera.
+var _cutscene := false
 var _examine_target := Transform3D.IDENTITY
 var _walk_phase := 0.0
 
@@ -79,13 +81,58 @@ func _build_figure() -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if _examining:
+	if _examining or _cutscene:
 		return
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		_yaw -= event.relative.x * MOUSE_SENSITIVITY
 
 
+## Hand her body and the camera to the ending sequence. Movement and mouse
+## look stop, and the camera is lifted off the spring arm entirely.
+##
+## That last part is not optional. SpringArm3D repositions its children every
+## physics frame from its own raycast, so a cutscene that merely sets
+## `camera.global_transform` is overwritten a few milliseconds later — which
+## is exactly what happened: the ending's carefully framed two-shot came out
+## with the couple jammed into the right edge of the screen. Reparenting the
+## camera to the player's parent makes the sequence the only thing writing it.
+func begin_cutscene() -> void:
+	if _cutscene:
+		return
+	_cutscene = true
+	_examining = false
+	velocity = Vector3.ZERO
+
+	if camera != null and camera.get_parent() == _arm:
+		var keep := camera.global_transform
+		var host := get_parent()
+		if host != null:
+			_arm.remove_child(camera)
+			host.add_child(camera)
+			camera.global_transform = keep
+
+
+func end_cutscene() -> void:
+	if not _cutscene:
+		return
+	_cutscene = false
+
+	# Back onto the arm, at the length the arm expects.
+	if camera != null and _arm != null and camera.get_parent() != _arm:
+		camera.get_parent().remove_child(camera)
+		_arm.add_child(camera)
+		camera.transform = Transform3D.IDENTITY
+
+
+func is_in_cutscene() -> bool:
+	return _cutscene
+
+
 func _physics_process(delta: float) -> void:
+	if _cutscene:
+		velocity = Vector3.ZERO
+		return
+
 	if _examining:
 		_blend_to_examine(delta)
 		_animate_walk(delta)

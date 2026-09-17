@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/hospital/hospital_scene.gd" id="1_hospital"]
+
+[node name="Hospital" type="Node3D"]
+script = ExtResource("1_hospital")

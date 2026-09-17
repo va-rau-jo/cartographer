@@ -301,7 +301,8 @@ func _on_submit() -> void:
 		date.month = _month.get_selected_id()
 
 	_root.visible = false
-	rounds.submit_guess(float(place["lat"]), float(place["lon"]), date)
+	rounds.submit_guess(float(place["lat"]), float(place["lon"]), date,
+		String(place["label"]))
 
 
 func _on_guess_submitted(_index: int) -> void:
