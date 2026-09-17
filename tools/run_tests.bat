@@ -92,6 +92,21 @@ if not exist "%GODOT%" (
 echo.
 
 pushd "%~dp0.."
+
+REM Refresh the import cache before running anything. A --script run reads
+REM .godot\global_script_class_cache.cfg exactly as it finds it and never
+REM rescans the project, so any class_name added since the editor last ran is
+REM simply absent -- and every suite that names it fails to compile with
+REM "Could not find type ... in the current scope". --import rebuilds the
+REM cache. It is a few seconds once and near-instant afterwards.
+"%GODOT%" --headless --path . --import >nul 2>&1
+if errorlevel 1 (
+  echo WARNING: --import failed. If suites report "did not compile", the
+  echo script class cache is stale -- open the project in the Godot editor once,
+  echo or point GODOT at an editor build rather than an export template.
+  echo.
+)
+
 "%GODOT%" --headless --path . --script tests/run_tests.gd
 set RESULT=%ERRORLEVEL%
 popd
@@ -104,7 +119,7 @@ if exist "%REPORT%" (
   echo No report was written. Expected it at:
   echo   %REPORT%
   echo.
-  echo If Godot printed nothing at all, the run never started — check the
+  echo If Godot printed nothing at all, the run never started -- check the
   echo path above. Exit code was %RESULT%.
 )
 

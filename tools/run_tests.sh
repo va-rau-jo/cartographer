@@ -20,6 +20,18 @@ fi
 echo "Using Godot: $GODOT"
 cd "$(dirname "$0")/.."
 
+# Refresh the import cache before running anything. A --script run reads
+# .godot/global_script_class_cache.cfg exactly as it finds it and never rescans
+# the project, so any class_name added since the editor last ran is simply
+# absent -- and every suite that names it fails to compile with "Could not find
+# type ... in the current scope". --import rebuilds the cache.
+if ! "$GODOT" --headless --path . --import >/dev/null 2>&1; then
+  echo "WARNING: --import failed. If suites report \"did not compile\", the script"
+  echo "class cache is stale - open the project in the Godot editor once, or point"
+  echo "GODOT at an editor build rather than an export template."
+  echo
+fi
+
 "$GODOT" --headless --path . --script tests/run_tests.gd
 result=$?
 

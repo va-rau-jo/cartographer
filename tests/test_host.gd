@@ -77,6 +77,13 @@ func _run_one(path: String) -> String:
 	# A suite that will not instantiate is almost always a parse error in that
 	# file. Report it and carry on rather than letting the runner die mid-loop
 	# and hang without ever reaching quit() — which cost an afternoon once.
+	# A suite that will not instantiate is almost always a parse error in that
+	# file -- but if several fail at once and the errors above are all "Could
+	# not find type X in the current scope", the cause is not the tests: a
+	# --script run never rescans for class_name globals, so a
+	# .godot/global_script_class_cache.cfg written before those files existed
+	# leaves their types unresolvable. Run with --import first (the runner
+	# scripts in tools/ do) or open the project in the editor once.
 	if not script.can_instantiate():
 		failed += 1
 		return "[FAIL] %s did not compile (see the errors above)" % path.get_file()
