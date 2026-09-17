@@ -14,21 +14,31 @@ The full design and milestone breakdown is in **[docs/IMPLEMENTATION_PLAN.md](do
 
 ## Status
 
-**M0, M1 and the M2 data layer are done.** The gallery is walkable grey-box;
-the round logic that turns it into a game is next.
+**The whole arc plays.** Hospital room, transition, ten rounds in the gallery,
+the hug, the fade, the results screen, back to the menu. It is grey-box
+throughout and the album editor does not exist yet, so the only way to fill it
+with photographs is `tools/make_test_album.gd`.
 
-| Area                                             | State                                  |
-| ------------------------------------------------ | -------------------------------------- |
-| Album format, ZIP IO, validation, migration hook | done, 134 tests                        |
-| EXIF reader (date, GPS, orientation)             | done, 39 tests                         |
-| Image pipeline (downscale, blur ladder, WebP)    | done                                   |
-| Scoring (haversine distance, date, hint economy) | done, 42 tests                         |
-| Map projection maths                             | done, 40 tests                         |
-| Platform abstraction (web / desktop)             | done, untested in a real browser       |
-| Main menu, debug overlay                         | minimal, functional                    |
-| Gallery hallway, frames, characters              | grey-box, walkable                     |
-| Web export + Pages deploy                        | working; never yet opened in a browser |
-| Hospital scene, map widget, round logic, editor  | not started                            |
+| Area                                                | State                                      |
+| --------------------------------------------------- | ------------------------------------------ |
+| Album format, ZIP IO, validation, migration hook    | done, 134 tests                            |
+| EXIF reader (date, GPS, orientation)                | done, 39 tests                             |
+| Image pipeline (downscale, blur ladder, WebP)       | done                                       |
+| Scoring (haversine distance, date, hint economy)    | done, 42 tests                             |
+| Round loop: approach, examine, spend, guess, reveal | done, 86 tests                             |
+| HUD, text bubbles, hint ladder and costs            | done                                       |
+| Guessing: map with a pin, or a place list           | done, 72 tests                             |
+| Map coastline data                                  | **needs `tools/fetch_geo.py` run once**    |
+| Hospital opening, the transition                    | done, 27 tests                             |
+| The hug and the results screen                      | done, 67 tests                             |
+| Gallery hallway, frames, characters                 | grey-box, walkable                         |
+| Platform abstraction (web / desktop)                | done, untested in a real browser           |
+| Web export + Pages deploy                           | working; **never yet opened in a browser** |
+| Album editor                                        | not started — the largest gap              |
+| Art pass, music, customization, curator bake        | not started                                |
+
+**683 tests, 0 failed.** The two things only you can check are at the bottom of
+this file.
 
 ---
 
@@ -106,12 +116,41 @@ A pass looks like this, and the process exits 0:
 [PASS] exif       39 passed, 0 failed
 [PASS] album     134 passed, 0 failed
 [PASS] geometry  176 passed, 0 failed
-431 passed, 0 failed
+[PASS] round      86 passed, 0 failed
+[PASS] ending     67 passed, 0 failed
+[PASS] hospital   27 passed, 0 failed
+[PASS] map        72 passed, 0 failed
+683 passed, 0 failed
 ```
+
+The album suite takes about fourteen seconds (it generates real images); the
+rest are milliseconds.
 
 A failure names the assertion, what was expected and what happened, and exits
 non-zero. If instead you get `Identifier "X" not declared`, the script class
 cache is stale — run `godot --headless --path . --import` once and try again.
+
+### Bake the map
+
+The map needs the world's outline, which is not in this repository — no host
+that serves Natural Earth is reachable from the environment the code was
+written in. One command fixes it:
+
+```bat
+python tools\fetch_geo.py
+python tools\fetch_geo.py --check
+```
+
+That writes `data/geo/coastlines.json` (about 100 KB) and the map picks it up
+next time the game starts. If the download is blocked for you too, fetch
+`ne_110m_coastline.geojson` from
+<https://github.com/nvkelso/natural-earth-vector/tree/master/geojson>
+by hand and pass `--from <that file>`.
+
+Until it exists the map draws its graticule and says so, and the guess panel
+leads with a list of the album's places instead. That list is not a stopgap —
+it stays as the easier mode for anyone who would rather not be tested on
+coordinates.
 
 ### Generate a test album
 
@@ -122,6 +161,24 @@ tools\make_test_album.bat
 Writes a valid ten-photo `.ccalbum` (ten real places, real coordinates) to
 `%APPDATA%\Godot\app_userdata\Chrono Cartographer\test_album.ccalbum`.
 Load it from the menu with **Load album…**.
+
+### Look at it
+
+Three tools render the game headlessly, which is how every character and
+lighting bug in this project has actually been found:
+
+```bash
+xvfb-run -a godot --path . --script tools/render_shots.gd      # the gallery
+xvfb-run -a godot --path . --script tools/render_hospital.gd   # the opening
+xvfb-run -a godot --path . --script tools/render_ending.gd     # the hug
+xvfb-run -a godot --path . --script tools/run_diag_map.gd      # the map
+```
+
+They write PNGs to `%APPDATA%\Godot\app_userdata\Chrono Cartographer\shots`.
+On Windows, drop `xvfb-run -a` and the game opens a window instead.
+
+**Change geometry, lighting or a drawn figure, then look at the result.** The
+numbers cannot see a blindfold where a pair of closed eyes should be.
 
 ### Export for the web
 
@@ -195,18 +252,23 @@ Two constraints GitHub Pages imposes, both already handled:
 
 ```
 src/
-  core/      autoloads, event bus, logging, platform abstraction
-  album/     schema, zip io, validation, exif, image pipeline
-  map/       projection and distance maths
-  gameplay/  scoring
-  ui/        menus
-  web/       JavaScriptBridge wrappers
-tests/       headless test suites
-tools/       headless utilities (test album generator, runners)
-docs/        the implementation plan
+  core/        autoloads, event bus, logging, platform abstraction
+  album/       schema, zip io, validation, exif, image pipeline
+  map/         projection, distance, coastline data
+  gameplay/    scoring, the round machine, the ending
+  mansion/     the gallery hallway and its lighting
+  hospital/    the opening scene
+  photo/       the frames and the mat/blur shader
+  characters/  the drawn figures and the greedy mesher
+  ui/          menus, HUD, guess panel, map widget, results
+  web/         JavaScriptBridge wrappers
+tests/         headless test suites
+tools/         headless utilities: test album, renders, diagnostics, geo bake
+docs/          the implementation plan
+data/geo/      the baked coastline (see "Bake the map")
 ```
 
-### Two rules worth keeping
+### Three rules worth keeping
 
 **1. The data layer never references an autoload.**
 
@@ -221,6 +283,17 @@ autoload, and why `AlbumIO` does not call `Platform.sync_user_fs()`.
 
 `src/core/platform.gd` and its two backends. No `OS.has_feature("web")`
 checks anywhere else — that is what makes dual-target projects miserable.
+
+**3. Tests and headless tools run from a live scene tree.**
+
+Same root cause as rule 1, one step further. During a `SceneTree`'s
+`_initialize()` the root Window is not yet _inside_ the tree: `_ready` never
+fires, every `global_transform` silently returns identity, and `add_child` on
+the root fails outright. A suite that builds real nodes there is testing
+nothing — 86 assertions were doing exactly that. So `tests/run_tests.gd` is a
+stub that adds `tests/test_host.gd`, which waits one frame and then runs the
+suites. Headless tools follow the same shape: a thin entry point plus a Node
+that does the work (`tools/render_ending.gd` + `tools/ending_shots.gd`).
 
 ---
 
@@ -255,7 +328,22 @@ it.
 
 ## Next
 
-M1: grey-box hallway with ten frame anchors, third-person controller, one
-code-generated voxel figure, lightmap bake, and a rough crossfade prototype of
-the hospital-to-gallery transition. Then look at it in a browser and make the
-art-direction call.
+In order:
+
+1. **Open the web build in a browser.** Nobody has. Everything else assumes it
+   works.
+2. **Run `tools/fetch_geo.py`** and commit `data/geo/coastlines.json`.
+3. **Build the album editor** (plan §9, M5). The game plays but cannot be
+   filled with your own photographs yet.
+4. Bake one real album's curator lines and read all thirty hint lines.
+5. The art pass.
+
+### Only you can do these
+
+- **Open `https://<your-user>.github.io/<repo>/` and see whether it loads.**
+  Set _Settings → Pages → Source: GitHub Actions_ first, then push to `main`.
+- **Check the export templates installed**: Godot → _Editor → Manage Export
+  Templates_ should say `4.7.stable`. See the section above if the download
+  failed.
+- **Run `tools\run_tests.bat`** and confirm 683 passing on your machine, not
+  just in the container.

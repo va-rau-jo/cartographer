@@ -1,22 +1,18 @@
 # Chrono Cartographer — Implementation Plan
 
-**Status:** v3 · 2026-09-16 · supersedes v2 (scale to 1000 photos; Blender available; hosting settled)
+**Status:** v5 · 2026-09-17 · supersedes v4. Same scope; the milestone table and §16 now record what was actually built, and where the implementation departed from this document.
 **Repo:** `C:\Users\victor\src\cartographer`
 **Engine:** Godot 4.7, GDScript, Compatibility renderer
-**Targets:** Web (primary) + Windows
-**Scope:** personal gift · one album per load · albums up to 1000 photos · 10 photos per room
+**Targets:** Web (primary, GitHub Pages or self-hosted) + Windows
+**Shape:** one album = 10 photos · one gallery hallway · 10–15 minute complete arc
 
 ---
 
-## 0. The premise, stated as a design brief
+## 0. The shape of the thing
 
-An old woman steps into her dying husband's mind. It has taken the shape of a mansion — heavy, sunlit, dusty — hung with the photographs of their life. She walks it with him. The photos start as fog. She has a map and a calendar and sixty years of memory, and she has to say *where* and *when*. He'll help if she asks, but asking costs her. At the end, they hug, and it fades out.
+A hospital room. An old woman at her husband's bedside. She takes his hand, and the room dissolves into his mind — a gallery hallway hung with ten photographs of their life. She walks it with him. Each photo starts as fog. She has a map and a calendar and sixty years of memory, and she has to say *where* and *when*. He'll help if she asks, but asking costs her. At the end of the hall they hug, the light goes, and it fades to the menu.
 
-Three consequences govern everything downstream:
-
-1. **The mansion is his mind, so it must feel inhabited.** This is where the art effort goes.
-2. **The people are memories of people, so they don't need to be real.** Voxel characters in a believable room — the style clash *is* the statement.
-3. **Helping is grief.** Every hint reveals more and scores less. The scoring loop and the emotional loop are the same loop, and must never be separated.
+Ten to fifteen minutes, start to finish. That tight scope is the plan's biggest asset — every constraint that made v3 pessimistic has loosened.
 
 ### Confirmed decisions
 
@@ -24,19 +20,40 @@ Three consequences govern everything downstream:
 |---|---|
 | Language | **GDScript.** C# has no production web export (§1.1). |
 | Renderer | **Compatibility (WebGL 2)** on both platforms. |
-| AI curator | Pre-baked at authoring time using **Claude**. Shipped game makes zero AI calls. |
-| Guessing | Real-world map, haversine distance + date scoring. |
-| Camera / avatar | Third person. Player is the woman; the husband walks with her. |
+| Scenes | **Two: hospital bedside → (transition) → gallery hallway.** |
+| Session | 10 photos → hug → fade → main menu. Replay gives the same 10. |
+| Album | **Exactly 10 photos, ~5 MB.** Emailable. The 1000-photo library stays in your source folder. |
+| Editor | **In the shipped build, reachable from the menu** ("load game" page). |
+| AI curator | Pre-baked at authoring time with **Claude**. Shipped game makes zero AI calls. |
 | Husband's voice | **Text bubbles. No TTS.** |
-| Album authoring | In-game editor. Point at a large folder, select ~10 at a time. |
-| Platforms | **Web primary** + Windows. |
-| Hosting | **GitHub Pages or self-hosted. No server side** — confirmed correct (§1.3). |
-| Blender | **Available**, headless only (§7). |
-| Album scale | **Up to 1000 photos, 10 per room → up to 100 rooms** (§2). |
-| Google Photos | Phase 2, behind an interface (§12). |
-| Ending | All photos guessed → they hug → fade out. |
-| Albums | One album per load. No library. |
+| Guessing | Real-world map, haversine distance + date scoring. |
+| Camera | Third person in the hallway. Player is the woman. |
+| Hosting | **Static files only. No server side.** |
+| Blender | **Available**, headless only (§6). |
+| Google Photos | Phase 2, behind an interface (§11). |
 | Licensing | Personal gift; not a constraint. |
+
+### What this revision changes
+
+Nothing about the design. v4 was written before the code existed; v5 is written
+with six milestones' worth of it in the repository, so:
+
+- the milestone table carries a **state** column and says what remains;
+- §14 is rewritten as the actual next steps rather than the original ones;
+- §15's open question is **answered** (the hospital only opens the game);
+- a new **§16** records every place where the implementation had to depart from
+  this plan, and why. That section is the one to read before changing anything:
+  each entry cost a bug or a render to learn.
+
+### What v3 got wrong, now corrected
+
+Three subsystems are **deleted**, not deferred:
+
+- **The byte-range ZIP reader.** A 5 MB album needs no such thing — plain `ZIPReader` is fine (§3.3). This was the right answer to a 480 MB album and is dead weight against a 5 MB one.
+- **Room streaming, the layout solver, wings, per-room nav baking.** One hallway. Ten hand-placed frames, art-directed individually.
+- **Batch authoring tooling as critical path.** Ten photos need ten descriptions. That's an evening, not a hundred sessions.
+
+And one conclusion is **revised upward**: v3 said photorealism was out of reach. With the whole art budget going into one hallway and one small hospital room, that's no longer true (§1.4).
 
 ---
 
@@ -44,122 +61,119 @@ Three consequences govern everything downstream:
 
 ### 1.1 GDScript, not C#
 
-C# web export in Godot is still not production-ready in 2026: a draft PR exists but is single-threaded only, globalization is invariant-mode, browser API bindings are stubbed, and the tracking issue is locked with no target version. **Remove the `[dotnet]` block from `project.godot` at M0**, before any script exists.
+C# web export in Godot is still not production-ready in 2026: the draft PR is single-threaded only, globalization is invariant-mode, browser API bindings are stubbed, and the tracking issue is locked with no target version. **Remove the `[dotnet]` block from `project.godot` at M0**, before any script exists.
 
-The one real cost is losing NuGet, which means EXIF parsing must be hand-written in GDScript (~250 lines: JPEG APP1 → TIFF IFD → `DateTimeOriginal` 0x9003 + GPS IFD tags 1–4). At 1000-photo scale this is no longer optional — see §9.2.
+The only real cost is losing NuGet, so EXIF parsing is hand-written in GDScript (~250 lines: JPEG APP1 → TIFF IFD → `DateTimeOriginal` 0x9003 + GPS IFD tags 1–4). At ten photos per album this is a convenience rather than a necessity, but it's cheap and it saves typing dates.
 
 ### 1.2 Renderer: Compatibility / WebGL 2
 
 Web export in 4.7 runs WebGL 2 through the Compatibility renderer; WebGPU did not land. Unavailable: SDFGI, VoxelGI, volumetric fog, SSAO, SSIL, SSR. `AreaLight3D` is very likely Forward+ only — **verify at M1 before designing lighting around it.**
 
-Build for Compatibility on *both* platforms so the web build is the reference rather than a degraded afterthought. Forward+ stays available as an optional post-ship Windows upgrade via a per-platform override, but don't maintain two visual tiers during development.
+Build for Compatibility on *both* platforms so the web build is the reference rather than a degraded afterthought.
 
-### 1.3 Hosting — you're right, no server needed
+### 1.3 Hosting — static files, confirmed
 
-Confirmed: **the entire game is static files.** Author picks a local folder → builds an album in the browser → `JavaScriptBridge.download_buffer()` hands them a `.ccalbum` → they send it however they like → recipient opens the same URL and picks that file from their own disk. Nothing is uploaded, nothing is hosted but the game itself. That property is worth protecting; it's why this still works in ten years.
+The whole game is static files. Author picks a source folder → builds a 10-photo album in the browser → `download_buffer()` hands over a ~5 MB `.ccalbum` → recipient opens the same URL and picks that file off their disk. Nothing uploads.
 
-GitHub Pages specifics that constrain the build:
+GitHub Pages specifics: 1 GB site, 100 GB/month bandwidth (both irrelevant here), and **100 MB per file** — a git limit, so Godot's `.pck` must stay under it. GitHub Pages also **can't send custom headers**, so no COOP/COEP and therefore no threads unless you add the `coi-serviceworker` shim.
 
-- **1 GB site limit, 100 GB/month bandwidth** — irrelevant at our size.
-- **100 MB per file** (a git limit, not a Pages limit — GitHub refuses pushes above it). Godot's web export emits a `.wasm` (~30–40 MB) plus a `.pck` holding all project assets. **So the `.pck` must stay under 100 MB.** That, plus the wasm, is where §1.4's budget number comes from.
-- **No custom HTTP headers.** GitHub Pages can't send COOP/COEP, so `SharedArrayBuffer` — and therefore Godot's threads — are unavailable unless you add the `coi-serviceworker` shim, which achieves cross-origin isolation from inside the page. Self-hosting lets you just set the headers.
+**Plan single-threaded.** With ten photos and a blur ladder that tops out at 512 px pre-reveal (§4), threads buy nothing. This keeps hosting unconstrained.
 
-**Plan single-threaded regardless.** §4's blur-tier design makes threads an optimization rather than a requirement, which keeps your hosting options open. Add `coi-serviceworker` later only if profiling says so.
+### 1.4 Art budget — and why "realistic" is now achievable
 
-### 1.4 Download budget
+The hard ceiling is the `.pck` under 100 MB. In v3 that had to cover ten room types; now it covers **one hallway and one hospital room**. Roughly a tenfold increase in bytes per square metre.
 
-**Hard budget: `.pck` under 100 MB, total download under 150 MB.** Check it at every milestone. Levers by power:
+That changes the conclusion. v3 said three constraints stacked to put photorealism out of reach: no realtime GI, a tight budget, and no hand-modeling. Two of those have moved:
 
-1. **Trim-sheet materials** — 3–4 shared material sets for *all* architecture rather than per-model textures. By far the biggest lever, and it gets stronger the more rooms you have.
-2. **1K textures, not 4K.** At gallery viewing distances, indistinguishable.
-3. **Per-platform VRAM compression** (ETC2/ASTC for web) via import settings.
-4. **Procedural architecture ships as code**, not meshes — near-zero bytes (§7).
-5. **Room types, not rooms.** 100 rooms built from ~10 parameterised types cost the same as 10 (§8.3).
+- **The budget is no longer binding.** 2K trim sheets, unique hero assets, dense prop dressing, and a high-resolution lightmap bake all fit comfortably in two small spaces.
+- **Blender covers the missing GI and AO.** Bake ambient occlusion, curvature and detail normals into the textures, and bake full Cycles GI into the lightmap (§6.3). Static lighting in a static room is not a compromise — it's how architectural visualisation has always worked, and it looks excellent.
 
-The happy accident: **photos are supplied by the player at runtime and never count against the download.** The 150 MB is entirely mansion.
+**A gallery hallway is also among the most achievable realistic interiors there is.** Repeated architectural rhythm (pilasters, cornices, sconces, a coffered ceiling), tightly controlled lighting, and a camera that's always in the middle of it looking down its length. You can art-direct every square foot because there are only a few hundred of them.
 
-### 1.5 The creative answer to the renderer
+**Revised target: genuinely realistic and detailed.** Still not path-traced in real time, but the original brief's ask is now on the table. This is M1's go/no-go.
 
-No realtime GI, no volumetric fog, a 150 MB budget. That puts **photorealism out of reach**, and it's better said now than discovered at M7.
-
-What's reachable suits the story better. It is a *memory*, so make the unreality diegetic: warm dusty light, strong value contrast, soft haze, heavy bloom, edges falling into darkness, detail pooled around each photograph with everything else merely suggested. Baked light plus dense prop dressing in a tight value range reads as convincing — this is how architectural visualisation looked for fifteen years and it looked good. The darkness hides the renderer's limits and does narrative work simultaneously.
-
-Now that Blender is available, this gets materially better: **bake ambient occlusion, curvature and detail normals into the trim sheets in Blender** (§7.3). That recovers most of what losing SSAO costs, at zero runtime expense.
-
-**Target: believable and richly dressed with strong art direction — not photoreal.** This is M1's go/no-go.
+The creative direction still stands, because it serves the story: warm dusty light, strong value contrast, light shafts through tall windows, detail pooled around each photograph. It's a memory, so a little unreality is diegetic.
 
 ---
 
-## 2. Scale: 1000 photos, and where your assumption holds
+## 2. Structure
 
-You said album size shouldn't matter because only 10 photos load at a time. **At runtime that's exactly right, and it's the reason this design works.** But it only holds if one thing changes, and two other costs move elsewhere. Worth being precise, because 1000 is a hundredfold jump from the numbers v2 assumed.
+```
+res://
+  src/
+    core/        # autoloads, event bus, logging, platform abstraction
+    album/       # schema, zip io, validate, exif
+    photo/       # texture loading, blur tiers, frame binding
+    gameplay/    # round state machine, scoring, hint economy
+    map/         # vector world map, projection, pin input
+    calendar/    # date dial widget, precision handling
+    curator/     # text bubbles, hint ladder, barks
+    characters/  # controller, companion, customization, voxel builder
+    ui/          # menu, HUD, results, ending
+    editor/      # album editor (the "load game" page)
+    web/         # JavaScriptBridge wrappers
+  scenes/
+    menu/  hospital/  gallery/  editor/
+  art/ materials/ props/
+  data/ geo/ places/
+  tools/blender/    # headless scripts + runner
+user://
+  profile.json            # avatar customization, settings
+  progress.json           # best scores per album id
+  album-draft.json        # editor work in progress
+```
 
-### 2.1 Runtime — you're right, with one required fix
+**Autoloads — four:** `GameState`, `AlbumService`, `AudioDirector`, `EventBus`.
 
-Only the current room's 10 photos (plus neighbours) are ever resident, so VRAM and decode cost are flat regardless of album size. **But v2's album-loading approach would have broken this**, because it copied the whole `.ccalbum` into `user://` before reading it. At 1000 photos that file is 330–480 MB (§2.2), and writing that into IndexedDB in a browser is slow, memory-hungry and quota-fragile.
+**Platform abstraction still matters.** File picking, album export, persistence sync and the Claude bake differ between web and Windows. One interface in `src/core/platform.gd`, two implementations, written at M0. Scattered `OS.has_feature("web")` checks are what make dual-target projects miserable.
 
-**The fix — read the archive by byte range, never copying it (§3.3).** A picked browser `File` is a lazy handle supporting `.slice(start, end).arrayBuffer()`, so you can read the ZIP's central directory from the last few KB, then read only the exact byte ranges of the 10 photos you need. Combined with **storing the image entries uncompressed** in the ZIP, extracting a photo becomes a pure byte-range read with no decompression at all. WebP is already compressed, so ZIP deflate would have gained nothing anyway.
+### 2.1 Flow
 
-That makes a 1000-photo album *genuinely* free at runtime — your assumption, made true. It's the single most important change in this revision.
+```
+Main menu ──► Load/Edit (editor) ──► pick or build album
+    │                                      │
+    └──────────────► Play ◄────────────────┘
+                      │
+      Hospital bedside ─(take his hand)─► transition ─► Gallery hallway
+                                                            │
+                                    10 × [Approach → Examine → Guessing
+                                          → (Hint|Unblur)* → Scored → Revealed]
+                                                            │
+                                            End of hall ─► Hug ─► Fade ─► Menu
+```
 
-### 2.2 File size — the cost that doesn't disappear, but doesn't matter much
+### 2.2 The round state machine
 
-Per photo, with 4 blur tiers: blur tiers ~62 KB + thumb ~20 KB + full-res ~250–400 KB (1600–2048 px WebP) ≈ **330–480 KB**. So:
+```
+Idle → Approach → Examine → Guessing → (Hint | Unblur)* → Submitted → Scored → Revealed → Reflect → Idle
+                                                                                            ↓ (10th)
+                                                                                         Ending
+```
 
-| Album | Size |
-|---|---|
-| 60 photos | ~25 MB — email attachment |
-| 200 photos | ~80 MB — email, just barely |
-| 1000 photos | **330–480 MB** — Drive/Dropbox link |
-
-A 1000-photo album is not emailable. But it's also never *downloaded by the game* — the recipient picks it off their own disk, so there's no hosting cost, no bandwidth, no load time. You transfer it once by link. Not a problem, just worth knowing.
-
-If you want it smaller: drop full-res to 1600 px and raise WebP compression. Diminishing returns past that.
-
-### 2.3 Authoring effort — the real bottleneck at this scale
-
-This is the cost that actually bites. 1000 photos means 1000 descriptions, 1000 locations, 1000 dates. At 10 per batch that's 100 authoring sessions. Nobody finishes that by hand.
-
-So the editor has to carry the weight, and §9 is now a much bigger milestone than it was in v2:
-
-- **EXIF bulk prefill is essential, not a bonus.** Digital photos hand you date and GPS for free — that's two of three fields, for nothing.
-- **Batch metadata operations.** Select 30 photos → "all of these are Florence, June 1978" → apply. Most photo sets cluster by trip, so this collapses most of the work.
-- **Session persistence is mandatory.** Work-in-progress must survive closing the tab.
-- **Bake cost is real money.** ~1000 Claude calls at roughly 1.5K output tokens each is about **$40–60 on `claude-opus-5`, or ~$10 on `claude-sonnet-5`**. Recommendation: Sonnet for the bulk pass, Opus to re-bake the photos that matter most. You review everything either way.
-
-### 2.4 Playtime and repetition — a design conversation, not a technical one
-
-1000 photos at 60–90 seconds each is **17–25 hours**, across 100 rooms. And 100 rooms built from 10 types will feel repetitive however well you dress them.
-
-Two structural answers, both cheap:
-
-1. **Wings.** Group rooms into wings of ~10 (100 photos each), each with its own palette, dressing set and light temperature — the west wing cool and blue, the sun room warm, the cellar dim. Ten distinct-feeling regions instead of 100 samey rooms, and it gives the mansion a geography she can remember.
-2. **Make the ending player-chosen, not completion-gated.** Rather than the hug firing after photo 1000, let the final room become accessible early and have the husband wait there. She reaches it when she's ready. A 1000-photo album then becomes *a place to visit* rather than a 25-hour completion task — and someone who plays 80 photos across three evenings still gets the ending.
-
-**I'd build for 1000 and gently expect 80–150 to be the sweet spot.** The format shouldn't constrain you either way, and (2) means it doesn't.
+Only `RoundController` changes `GameState.phase`. Each transition is one method.
 
 ---
 
-## 3. The album format — the keystone
+## 3. The album format
 
-Build this before any 3D work. Everything binds to it and it's expensive to change later.
+Build this before any 3D work. Everything binds to it.
 
 ### 3.1 Container
 
-A single `*.ccalbum` file — a ZIP archive.
+A `*.ccalbum` ZIP holding exactly ten photos — roughly **5 MB**, so it attaches to an email and loads instantly.
 
 ```
-album.json                   # manifest (deflated; it's text)
+album.json
 photos/<photoId>/
-  full.webp                  # STORED, uncompressed
-  blur_0.webp … blur_3.webp  # STORED
-  thumb.webp                 # STORED
+  full.webp                  # 2048 px long edge
+  blur_0.webp … blur_3.webp  # pre-baked tiers, descending resolution
+  thumb.webp
 cover.webp
 ```
 
-**All image entries must use ZIP method 0 (STORE), not deflate.** This is load-bearing for §3.3: it makes extracting a photo a plain byte-range read with no inflate step, which is what keeps a 480 MB album free at runtime. WebP is already compressed, so you lose essentially nothing. `album.json` can be deflated — at 1000 photos it's 2–4 MB of text that compresses well.
+Because the file is small, **use normal ZIP deflate and plain `ZIPReader`** — v3's STORE-only requirement and hand-rolled range reader exist to solve a problem that no longer exists. (WebP won't compress further, so the images are effectively stored anyway; there's just no need to enforce it.)
 
-No `audio/` — text bubbles only. Leave the path reserved in the spec so adding voice later needs no schema bump.
+No `audio/` — text bubbles only. Leave the path reserved so adding voice later needs no schema bump.
 
 ### 3.2 Manifest schema (v1)
 
@@ -167,32 +181,32 @@ No `audio/` — text bubbles only. Leave the path reserved in the spec so adding
 {
   "schemaVersion": 1,
   "albumId": "uuid",
-  "title": "Margaret & Tom, 1961–2024",
+  "title": "Margaret & Tom",
   "authorNote": "For Mum. — Ellie",
   "createdUtc": "2026-09-16T12:00:00Z",
   "coverPhotoId": "p_003",
-  "curator": { "voiceName": "Tom", "style": "warm, a little wry, drifts when tired" },
+
+  "curator": {
+    "voiceName": "Tom",
+    "playerName": "Maggie",
+    "style": "warm, a little wry, drifts mid-sentence when tired"
+  },
   "scoring": {
     "maxDistanceScore": 5000, "maxDateScore": 2000,
     "distanceHalfLifeKm": 250,
     "unblurCostFraction": 0.20, "hintCosts": [0.10, 0.20, 0.35],
     "maxSpentFraction": 0.85
   },
-  "wings": [
-    { "id": "west", "title": "The West Wing", "palette": "cool",
-      "roomIds": ["r_001", "…"] }
-  ],
-  "rooms": [
-    { "id": "r_001", "type": "hall_long", "dressing": "study_a",
-      "wing": "west", "photoIds": ["p_001", "…"] }   // exactly 10
-  ],
+
+  "hangOrder": ["p_001", "p_002", "…"],   // exactly 10; wall order down the hall
+
   "photos": [
     {
       "id": "p_003",
       "files": {
-        "full":  { "path": "photos/p_003/full.webp",  "offset": 8814213, "size": 402113 },
-        "blurTiers": [ { "path": "…", "offset": 0, "size": 0 } ],
-        "thumb": { "path": "…", "offset": 0, "size": 0 }
+        "full": "photos/p_003/full.webp",
+        "blurTiers": ["photos/p_003/blur_0.webp", "…"],
+        "thumb": "photos/p_003/thumb.webp"
       },
       "aspect": 1.5,
       "truth": {
@@ -207,7 +221,7 @@ No `audio/` — text bubbles only. Leave the path reserved in the spec so adding
         "title": "The bridge with the shops on it",
         "description": "Author's text. Source material for the Claude bake.",
         "people": ["Margaret", "Tom"],
-        "tags": ["honeymoon", "europe", "summer", "river"],
+        "tags": ["honeymoon", "europe", "summer"],
         "privateNote": "NEVER RENDERED IN GAME."
       },
       "curatorLines": {
@@ -220,7 +234,7 @@ No `audio/` — text bubbles only. Leave the path reserved in the spec so adding
         "wrongGuessFar": ["Not even the right sea, Maggie."],
         "wrongGuessNear": ["Close. Same country. Wrong city."],
         "revealMonologue": "June of '78. …",
-        "bake": { "model": "claude-sonnet-5", "bakedUtc": "…", "approvedByAuthor": true }
+        "bake": { "model": "claude-opus-5", "bakedUtc": "…", "approvedByAuthor": true }
       }
     }
   ]
@@ -229,49 +243,38 @@ No `audio/` — text bubbles only. Leave the path reserved in the spec so adding
 
 Details that matter:
 
-- **`offset` and `size` per file.** The manifest caches each entry's byte range, so the game doesn't even need to parse the central directory in the common case — read `album.json`, and every photo is a direct range read. Treat them as a cache: verify against the local file header's signature on first read and fall back to a directory parse if they disagree.
-- **`rooms` and `wings` live in the manifest**, not computed at load. The author controls which 10 photos share a room (§9.3), which is much better than a solver guessing — photos from one trip belong together.
-- **`schemaVersion`** is checked on load with a migration hook.
+- **`hangOrder`** is the author's chosen sequence down the hallway. Order is dramatic: open with something easy and warm, close with the one that hurts.
+- **`curator.playerName`** — he should use her name. Small field, large effect.
+- **`schemaVersion`** checked on load, with a migration hook.
 - **`datePrecision`** (`day`|`month`|`year`|`decade`) drives calendar granularity *and* scoring tolerance. Scanned photos often only have a decade; don't punish that.
-- **`locationPrecisionKm`** lets a photo say "anywhere in this city counts."
+- **`locationPrecisionKm`** lets a photo say "anywhere in this city counts," so a pin 3 km off a Florence centroid isn't docked.
 - **`privateNote` is never rendered.** Put that in a comment on the field too.
 - **`approvedByAuthor`** gates export; an album with unapproved AI text warns loudly.
 
-### 3.3 Reading the archive — byte-range, no copy
-
-This replaces v2's approach entirely and is the key to §2.1.
+### 3.3 Loading
 
 ```gdscript
-# src/album/zip_range_reader.gd — ~200 lines, one implementation for both platforms
-#
-# open(source)         source is a JS File handle (web) or a path (Windows)
-# read_range(off, len) -> PackedByteArray
-# central_directory()  -> parsed entries (fallback / verification path)
-#
-# Web:     JS  file.slice(off, off+len).arrayBuffer()
-#          →   JavaScriptBridge.js_buffer_to_packed_byte_array()
-# Windows: FileAccess.seek(off); get_buffer(len)
+# bytes from the JS file picker (§5) or FileAccess on Windows
+var f := FileAccess.open("user://tmp.ccalbum", FileAccess.WRITE)
+f.store_buffer(bytes); f.close()
+var zip := ZIPReader.new()
+zip.open("user://tmp.ccalbum")
+# read album.json, then each photo's tiers on demand
 ```
 
-Sequence on album load:
+`user://` on web is IndexedDB-backed and works through `FileAccess`; a 5 MB write is instant. Call `JavaScriptBridge.force_fs_sync()` after writes that must survive a refresh.
 
-1. Read the last 64 KB → locate the End Of Central Directory record → parse the central directory (or, for 1000 photos, read only `album.json`'s entry and trust its cached offsets).
-2. Inflate and parse `album.json`.
-3. Per photo, on demand: read `[offset, offset+size)`, skip the 30-byte local file header plus filename, hand the remaining bytes straight to `Image.load_webp_from_buffer()`. **No inflate, because the entry is STOREd.**
+With only ten photos, **decode all four blur tiers for all ten up front** — that's about 600 KB of image data and well under a second. The full-res versions stay unloaded until each reveal. This removes the streaming system entirely: there is no eviction, no LRU, no budget.
 
-Why hand-roll rather than use `ZIPReader`: `ZIPReader.open()` wants a complete file on a filesystem, which on web means copying 480 MB into IndexedDB first. The byte-range reader avoids that entirely and gives identical behaviour on both platforms from one code path. ZIP's central directory format is stable and simple; this is a contained, well-specified piece of work.
-
-*(If `ZIPReader.open_buffer()` has landed in 4.7 — there's a long-standing proposal — it still doesn't help, since it needs the whole buffer in memory. The range reader remains correct.)*
-
-Validation returns a **list** of problems rather than throwing on the first. Missing `truth.lat` is a hard error; a missing hint tier is a warning with a fallback to the place label.
+Validation returns a **list** of problems rather than throwing on the first. Missing `truth.lat` is a hard error; a missing hint tier is a warning that falls back to the place label.
 
 ---
 
-## 4. Photo loading and the blur ladder
+## 4. The blur ladder
 
-### 4.1 The insight that makes it cheap
+### 4.1 Descending resolution
 
-A blurred photo carries almost no information, so **it doesn't need to be a big texture.** Bake the tiers at *descending resolution*:
+A blurred photo carries almost no information, so it doesn't need to be a big texture:
 
 | Tier | Meaning | Long edge | Blur | ≈ size |
 |---|---|---|---|---|
@@ -279,39 +282,30 @@ A blurred photo carries almost no information, so **it doesn't need to be a big 
 | 1 | First unblur | 128 px | strong | 5 KB |
 | 2 | | 256 px | moderate | 15 KB |
 | 3 | Nearly there | 512 px | light | 40 KB |
-| full | Revealed | 1600–2048 px | none | 250–400 KB |
+| full | Revealed | 2048 px | none | ~400 KB |
 
-Upscaling a 64 px image onto a 1.5 m canvas with bilinear filtering **is** a blur, and a good-looking one. The pre-reveal experience costs kilobytes; the expensive texture decodes only at reveal, while the player stands still and a dropped frame is invisible.
-
-*(v2 had five tiers; four is better. Tier 4 at 1024 px was 120 KB — a third of the per-photo budget for a step barely distinguishable from the reveal. Dropping it saves ~120 MB across a 1000-photo album.)*
-
-This pays off four ways: albums stay small, VRAM stays flat, single-threaded web decode is fine, and **it's why a 100-room mansion costs no more than a 3-room one.**
-
-Bake the blur properly at authoring time with a separable gaussian — never at runtime in a shader, which would keep the full-res texture resident and defeat the whole point.
+Upscaling a 64 px image onto a 1.5 m canvas with bilinear filtering **is** a blur, and a good-looking one. Bake the tiers at authoring time with a separable gaussian — never at runtime in a shader, which would keep the full-res texture resident and defeat the point.
 
 ### 4.2 Godot mechanics
 
-- Decode from bytes: `Image.load_webp_from_buffer()` / `load_jpg_from_buffer()` / `load_png_from_buffer()` — all exist, all take `PackedByteArray`. `Image.load_from_file()` is static but wants a real path, so it's useless for archive contents.
+- Decode from bytes: `Image.load_webp_from_buffer()` — exists, takes `PackedByteArray`. (`Image.load_from_file()` is static but wants a real path, so it's no use for archive contents.)
 - `img.generate_mipmaps()`, then `img.compress(Image.COMPRESS_ETC2, Image.COMPRESS_SOURCE_SRGB)` on web / `COMPRESS_S3TC` on Windows, then `ImageTexture.create_from_image()`. Signature: `compress(mode, source = 0, profile = 0)`. `COMPRESS_SOURCE_SRGB` matters — the compressor weights colour channels differently. **Check the return and fall back to uncompressed** if a browser refuses.
-- Frames use `StandardMaterial3D.albedo_texture`, swapped on tier change. Linear filter with mipmaps; match frame UVs to `aspect` so nothing stretches.
-- Single-threaded: decode at most one texture per frame from a queue in `_process`. With threads, decode on `WorkerThreadPool` and create the `ImageTexture` on the main thread (image work is thread-safe; texture creation isn't).
+- Frames use `StandardMaterial3D.albedo_texture`, swapped on tier change. Linear filter with mipmaps.
+- The reveal decode (~40 ms for a 2048 px WebP) happens while the player stands still looking at the photo. Invisible. Decode it one frame after the guess is submitted so it's ready when the reveal animation plays.
 
-### 4.3 Streaming at 100 rooms
+### 4.3 Mixed aspect ratios in fixed frames
 
-- Resident set: tiers 0–2 for the current room and its immediate neighbours; nothing else.
-- Full-res evicted when leaving a room; revealed state persists in the save and re-decodes on return.
-- Cap resident photo VRAM — 192 MB web, 256 MB Windows — LRU beyond it.
-- **Also stream the rooms themselves.** At 100 rooms you cannot instance them all: keep room *N* and its neighbours loaded, free the rest, and bake navigation per room rather than mansion-wide.
+Ten hand-placed frames, but the author's photos will be a mix of portrait, landscape and square. Stretching is unacceptable and varying frame sizes wrecks the art direction.
 
-### 4.4 Honest caveat
+**Solution, and it's what real galleries do: a uniform outer frame with a variable mat.** Every frame mesh is the same physical size; inside it, a passe-partout (mount board) whose window is cut to the photo's aspect. A portrait photo gets wide side margins, a landscape gets deep top and bottom. Implement as a shader on the mat quad that computes the window from the `aspect` field, or as a mesh whose inner border scales. Uniform, elegant, and it solves the problem completely.
 
-Anyone can open a `.ccalbum` in a ZIP tool and see `full.webp` — more easily now that entries are uncompressed. Encryption isn't worth it; the audience is family playing a gift.
+Set a maximum window so a panorama doesn't become a letterbox slit — clamp extreme aspects and centre-crop slightly.
 
 ---
 
-## 5. Loading photos from a folder in the browser
+## 5. Loading photos from a folder
 
-Your priority-one requirement. It works cleanly — via the proper callback API, not the `eval`-and-poll hack in the blog posts (which uses `readAsText` and corrupts image bytes).
+The editor points at your source folder — which may hold a thousand photos — and you pick ten.
 
 ### 5.1 The picker
 
@@ -325,7 +319,7 @@ func pick_folder() -> void:
       (() => {
         const i = document.createElement('input');
         i.type = 'file';
-        i.webkitdirectory = true;   // whole folder; omit for multi-select
+        i.webkitdirectory = true;
         i.multiple = true;
         i.onchange = () => { window.__ccFiles = Array.from(i.files); window.__ccReady(); };
         i.click();
@@ -336,289 +330,367 @@ func pick_folder() -> void:
 Confirmed APIs:
 
 - `JavaScriptBridge.create_callback(callable)` — real callbacks, no polling. **Keep the returned object in a member variable** or it's garbage-collected before firing.
-- `JavaScriptBridge.js_buffer_to_packed_byte_array(buf)` — JS `ArrayBuffer` → `PackedByteArray`. This is what makes binary loading work.
-- `JavaScriptBridge.download_buffer(bytes, name, mime)` — triggers a browser download; how the editor exports a `.ccalbum`.
+- `JavaScriptBridge.js_buffer_to_packed_byte_array(buf)` — JS `ArrayBuffer` → `PackedByteArray`. This is what makes binary loading work; `readAsText` corrupts image bytes, which is why the common blog-post approach is wrong.
+- `JavaScriptBridge.download_buffer(bytes, name, mime)` — triggers a browser download; how the editor exports the `.ccalbum`.
 
-### 5.2 Why `webkitdirectory` handles a 1000-photo folder
+### 5.2 A thousand-file folder is fine
 
-Supported in Chrome, Edge, Safari and Firefox, and the `File` objects it yields are **lazy handles**: you get names, sizes and dates for 5,000 files instantly and pay nothing until you call `.arrayBuffer()`. So the editor lists everything immediately, decodes thumbnails only for the rows currently on screen, and reads full bytes only for the 10 being worked on.
+`webkitdirectory` works in Chrome, Edge, Safari and Firefox, and its `File` objects are **lazy handles**: you get names, sizes and dates for a thousand files instantly and pay nothing until `.arrayBuffer()` is called. So the editor lists everything immediately, decodes thumbnails only for rows on screen (virtualised grid), and reads full bytes only for the ten being used.
 
-The **File System Access API** (`window.showDirectoryPicker()`) is a worthwhile enhancement at this scale — it returns *persistent, re-grantable* handles, so an author resuming session 47 of 100 doesn't re-pick the folder. Chrome/Edge only, so it layers on top of `webkitdirectory` rather than replacing it. Given §2.3's authoring burden, this is high-value.
+**This is the one place worth a scale test** (folded into M5): a virtualised grid over 1,000–5,000 files, with lazy thumbnail decode and a cap on concurrent decodes.
 
-### 5.3 Windows build
+The File System Access API (`window.showDirectoryPicker()`) gives persistent re-grantable handles so a returning author doesn't re-pick the folder — nice, Chrome/Edge only, strictly an enhancement.
 
-Native `FileDialog` with `access = ACCESS_FILESYSTEM`, directory mode. Same `Image.load_*_from_buffer` path underneath, behind the platform interface.
-
----
-
-## 6. Map, calendar, scoring
-
-### 6.1 Bundled vector map, not tiles
-
-Natural Earth: 1:110m countries + coastline for the wide view, 1:50m closer, populated places for labels. Public domain — "no permission is needed to use Natural Earth. Crediting the authors is unnecessary" — though `CREDITS.md` can carry their suggested "Made with Natural Earth" as a courtesy. Convert GeoJSON to compact binary at build time; draw with `Polygon2D`/`Line2D` or custom `_draw()`.
-
-A few MB, no network, and — the real reason — **it can be painted**. A parchment-and-ink map belongs in a dying man's memory palace in a way satellite tiles never would.
-
-Use **equirectangular projection** underneath: lat/lon → x/y is one line, and inverse-projecting a click is trivial. Paint distortion into the presentation if you like, but never let the pretty version and the math version diverge.
-
-Online tiles are the wrong choice: internet dependency, attribution UI, OSM's tile ToS forbids app use, Mapbox costs per view, and it breaks the tone.
-
-### 6.2 Distance scoring
-
-```
-effectiveKm   = max(0, distanceKm - locationPrecisionKm)     # haversine, r = 6371 km
-distanceScore = maxDistanceScore * exp(-effectiveKm / distanceHalfLifeKm)
-```
-
-Exponential decay rewards real recognition steeply, still credits the right country, and tails to ~0 rather than going negative. Per-album `distanceHalfLifeKm` tunes difficulty: 250 km for globe-trotting, 15 km for one county.
-
-### 6.3 Calendar
-
-A dial revealing decade → year → month → day, only as deep as `datePrecision` requires.
-
-```
-dateScore = maxDateScore * exp(-abs(guessYear - truthYear) / 4)   # + month bonus when precision allows
-```
-
-A `decade`-precision photo scores full marks anywhere in the decade.
-
-### 6.4 Hint economy
-
-Unblurring and asking both draw from one budget, cost shown before committing:
-
-```
-roundScore = (distanceScore + dateScore) * (1 - clamp(totalSpent, 0, maxSpentFraction))
-```
-
-Never let it reach zero. A player who needed every hint still got it right, and this game should never punish that.
-
-All constants live in the manifest with code defaults, and **a debug overlay showing live score math** ships at M3 — these numbers are only tunable against a real album with a real player.
+**Windows:** native `FileDialog`, `access = ACCESS_FILESYSTEM`, directory mode. Same decode path behind the platform interface.
 
 ---
 
-## 7. Art production with headless Blender
+## 6. Art production
 
-You're installing Blender but can't use the UI, so **everything runs as `blender --background --python tools/blender/<script>.py`.** I write the scripts; you run a batch file. You never open the interface.
+### 6.1 Two spaces
 
-### 7.1 What makes what
+**The hospital room.** Small and intimate: a bed, a chair, a window with late light, an IV stand, a side table with a water glass. Mostly viewed from one or two angles. Minimal interaction — she walks to the bedside, one prompt ("take his hand"), and the transition begins. Cheap to build, enormous narrative return.
+
+**The gallery hallway.** A long hall with ten frames. Tall windows down one side throwing light across the opposite wall where the photographs hang; pilasters and sconces setting a rhythm; a coffered ceiling; a runner on parquet; the far end in shadow where he waits. Ten frame anchors, hand-placed and individually lit.
+
+A hallway is the right choice mechanically as well as artistically: it makes progression linear and legible, gives the walk between photographs a natural pace, and means the camera is nearly always looking down its length — so you can art-direct the exact composition the player sees.
+
+### 6.2 What makes what
+
+You're installing Blender but not using the UI, so **everything runs as `blender --background --python tools/blender/<script>.py`.** I write the scripts; you run a batch file.
 
 | Asset class | How | Tool |
 |---|---|---|
-| Walls, floors, ceilings, cornices, wainscoting, door and window frames, staircases, banisters, skirting, picture frames, plinths | Procedural `ArrayMesh` generation — all boxes, extrusions and lathes, and 80% of the screen | GDScript |
+| Hallway shell — walls, floor, coffered ceiling, cornices, pilasters, wainscoting, window and door frames, picture frames, skirting | Hand-assembled from parameterised modules, art-directed in the Godot editor | GDScript generators + Godot editor |
+| Trim-sheet textures with baked AO, curvature, detail normals | Baked from a high-poly source | **Blender headless** |
+| Lightmap GI bake | Full Cycles GI baked to texture | **Blender headless** (or `LightmapGI`; §6.3) |
+| Furniture, drapes, chandeliers, sconces, hospital bed, IV stand, rugs, books | Downloaded CC0 `.glb`, dressed by hand | Poly Haven, Quaternius, ambientCG |
+| CC0 prop cleanup — decimation, LOD, atlas packing, glTF re-export | Batch processing | **Blender headless** |
 | Voxel characters | A voxel model *is* a grid of coloured cubes — authored as data, greedy-meshed in code | GDScript |
-| Character animation (walk, idle, look, **the hug**) | Hand-keyed on a parts hierarchy | Godot `AnimationPlayer` |
-| Trim-sheet textures with baked AO, curvature, detail normals | **Bake from a high-poly source to a flat sheet** | Blender headless |
-| CC0 prop optimisation — decimation, LOD, glTF re-export, atlas packing | Batch processing for the download budget | Blender headless |
-| Furniture, drapes, chandeliers, vases, books, rugs | Downloaded CC0 `.glb`, assembled in the Godot editor | Poly Haven, Quaternius, ambientCG |
+| Animation (walk, idle, look, **the hug**) | Hand-keyed on a parts hierarchy | Godot `AnimationPlayer` |
 
-### 7.2 Why procedural architecture fits
+Note the shift from v3: with **one** hallway rather than ten room types, hand-assembly beats procedural generation. Procedural earns its keep when you need a hundred variations cheaply; here you need one space to be beautiful, so art control wins. Keep the generators for repeated trim elements (running a cornice profile along a wall, spacing pilasters evenly) and place everything else by hand.
 
-What makes a room read as *a mansion* — tall walls, deep cornices, panelled wainscoting, arched doorways, a sweeping staircase, heavy frames — is all prismatic or lathe geometry. Generating it in code gives parameterised rooms (change one number, every cornice updates), near-zero download cost, and no asset pipeline. The remaining 20% — the soft, irregular, hand-made things — is what CC0 props supply.
+### 6.3 Lighting
 
-### 7.3 What Blender specifically buys you
+- **Baked GI is the primary light source.** Try `LightmapGI` first — with a single static scene, v3's instancing worry evaporates entirely, so this is now the straightforward path. Blender/Cycles baking stays available if you want higher quality or more control.
+- **Bake AO and detail normals into the trim sheets** (Blender). SSAO doesn't exist in Compatibility, so contact shading has to come from textures. Highest-value use of Blender here.
+- **Fake the light shafts.** No volumetric fog on web: low-poly cones from each window with an additive, depth-faded, slightly animated shader. At these angles, barely distinguishable from the real thing — and a hallway with tall windows is exactly the setup where this reads best.
+- **Dust motes** as `GPUParticles3D`. Survives Compatibility; enormous return per unit cost.
+- **A dim accent light per photograph**, which also does gameplay work — it draws the eye to the next frame.
+- **Post-process** on a fullscreen quad: ACES-ish tonemap, bloom, vignette, grain, gentle chromatic aberration. Restraint — a photograph, not a filter.
+- Verify `AreaLight3D` in Compatibility at M1; window light is the obvious use if it works.
 
-This is the biggest change from v2, and it lands exactly where the renderer hurts:
+### 6.4 The transition
 
-1. **Baked AO and detail normals in the trim sheets.** SSAO doesn't exist in Compatibility, so contact shading has to come from textures. Blender bakes it from a high-poly source once, and it costs nothing at runtime. This is the single highest-value use of Blender here.
-2. **Baked GI per room type, into textures.** Rather than relying on `LightmapGI` — whose interaction with 100 instanced rooms is an open question — bake full Cycles GI into each room *type*'s textures. Instance-safe by construction, works in Compatibility, and sidesteps the problem entirely (§8.3).
-3. **Prop budget enforcement.** Batch-decimate and re-atlas downloaded CC0 assets to hit §1.4. Doing this by hand across 100 rooms' worth of props is not feasible; as a script it's one command.
-4. **Lightmap UV unwrapping** where you do want engine-side bakes — Blender's unwrapper is better than doing it procedurally.
+The dissolve from hospital room to gallery is the most important thirty seconds in the game, and it's a direction problem more than a technical one. Achievable entirely in Compatibility:
 
-Set up `tools/blender/` with a runner batch file at M1 so the pipeline exists before it's needed.
-
-### 7.4 Lighting
-
-- Baked GI in trim-sheet/room textures (§7.3) as the primary source. Baked light is what separates "hobby 3D scene" from "photograph of a room."
-- No volumetric fog on web, so **fake the light shafts**: low-poly cones from each window with an additive, depth-faded, slightly animated shader. At these angles, barely distinguishable from the real thing.
-- Dust motes as `GPUParticles3D` — survives Compatibility, enormous return per unit cost.
-- A few realtime lights for accents and to break up instanced rooms.
-- Post-process on a fullscreen quad: ACES-ish tonemap, bloom, vignette, grain, gentle chromatic aberration. **Restraint** — a photograph, not a filter.
-- Verify `AreaLight3D` in Compatibility at M1.
+- Crossfade two loaded scenes through a fullscreen dissolve shader, masked by a noise texture so the hospital *peels* rather than fades flat.
+- Carry motifs across: the window light in the hospital becomes the hallway's window light; the shape of the bed becomes the shape of the runner; the heart monitor's rhythm becomes her footsteps.
+- Audio does half the work — monitor beep and ventilator hiss crossfading into room tone and echo.
+- Hold it longer than feels comfortable. This beat is the premise.
 
 ---
 
-## 8. The mansion at 100 rooms
+## 7. Map, calendar, scoring
 
-### 8.1 Rooms hold exactly 10 photos
+### 7.1 Bundled vector map, not tiles
 
-Fixed at 10 per your decision, which simplifies a great deal: room capacity is constant, the layout problem becomes trivial (`ceil(photoCount / 10)` rooms), and the author groups photos into rooms explicitly in the editor (§9.3). A trip's photos share a room because the author said so, not because a solver guessed.
+Natural Earth: 1:110m countries and coastline for the wide view, 1:50m closer, populated places for labels. Public domain — "no permission is needed to use Natural Earth. Crediting the authors is unnecessary" — though `CREDITS.md` can carry their suggested "Made with Natural Earth" as a courtesy. Convert GeoJSON to compact binary at build time; draw with `Polygon2D`/`Line2D` or a custom `_draw()`.
 
-### 8.2 Wings give the mansion a geography
+A few MB, no network, and — the real reason — **it can be painted**. A parchment-and-ink map belongs in a dying man's memory palace in a way satellite tiles never would.
 
-Per §2.4, group rooms into wings of ~10 rooms / 100 photos, each with its own palette, dressing set and light temperature. Ten distinct regions rather than 100 samey rooms, at the cost of ten parameter sets. It also gives her somewhere to *remember* — "the blue corridor" — which is the right feeling for a memory palace.
+Use **equirectangular projection** underneath: lat/lon → x/y is one line and inverse-projecting a click is trivial. Paint distortion into the presentation if you like, but never let the pretty version and the math version diverge.
 
-### 8.3 Instancing, and the open technical question
+Online tiles are the wrong choice: internet dependency, attribution UI, OSM's tile ToS forbids app use, Mapbox costs per view, and it breaks the tone.
 
-100 rooms from ~10 types × ~4 dressing variants. Each type is a parameterised procedural scene; instances vary by dressing, palette, accent lights and prop placement seed.
+### 7.2 Scoring
 
-**The open question: how `LightmapGI` behaves across many instances of one pre-baked room scene.** Mesh lightmaps live in UV2 space and should reuse correctly, but LightmapGI also stores world-positioned probe data for dynamic objects, and whether that survives instancing needs testing rather than assuming.
+```
+effectiveKm    = max(0, distanceKm - locationPrecisionKm)      # haversine, r = 6371 km
+distanceScore  = maxDistanceScore * exp(-effectiveKm / distanceHalfLifeKm)
+dateScore      = maxDateScore * exp(-abs(guessYear - truthYear) / 4)   # + month bonus where precision allows
+roundScore     = (distanceScore + dateScore) * (1 - clamp(totalSpent, 0, maxSpentFraction))
+```
 
-**The safe path, available now that Blender is here: bake GI into the room type's textures in Blender** (§7.3). Instance-safe by definition, no per-instance bake, no engine-version risk. The tradeoff is that lighting is fully static per room type — which is acceptable, and the wing palettes plus realtime accent lights supply the variation. **Test the `LightmapGI` route at M1; if it doesn't instance cleanly, the Blender bake is the answer and nothing downstream changes.**
+Exponential decay rewards real recognition steeply, still credits the right country, and tails to ~0 rather than going negative. A `decade`-precision photo scores full marks anywhere in the decade.
 
-### 8.4 Streaming and navigation
+`totalSpent` sums unblur and hint costs. **Never let it reach zero** — a player who needed every hint still got it right, and this game should never punish that.
 
-Load room *N* and its neighbours; free the rest. Bake navigation per room scene rather than mansion-wide — a single nav mesh across 100 rooms is both slow to bake and pointless when only three are resident. Rooms connect through standard door sockets so any room can follow any other.
+With only ten rounds, a final score out of ~70,000 is the session's whole result, and replaying the same ten photos for a better score is the only replay incentive. That's fine for a gift. Show a per-photo breakdown on the results screen; it's a keepsake in itself.
+
+All constants live in the manifest with code defaults, plus **a debug overlay showing live score math** at M3 — these numbers are only tunable against a real album with a real player.
+
+### 7.3 Calendar
+
+A dial revealing decade → year → month → day, only as deep as `datePrecision` requires.
 
 ---
 
-## 9. The album editor — now the biggest milestone
+## 8. The curator
 
-At 1000 photos this is where the project's real effort sits (§2.3).
+### 8.1 Text bubbles carry the whole performance
 
-### 9.1 Screens
+No TTS, so typography does the acting:
 
-1. **Source** — pick folder (File System Access API when available, `webkitdirectory` otherwise); virtualised thumbnail grid over up to 5,000 files with lazy decode; filter by filename, date, folder.
-2. **Batch select** — choose ~10 for the next room; shows which files are already in the album.
-3. **Metadata** — per-photo form, plus **batch apply** across the whole selection (§9.2).
-4. **Rooms & wings** — arrange rooms into wings, reorder, retitle, set dressing/palette.
-5. **Bake** — Claude generation with per-field review, regenerate-one, approve; batch bake with progress and cost estimate.
-6. **Validate & export** — full validator with jump-to-problem, then `.ccalbum` via `download_buffer`.
+- Worldspace bubble above him — `Label3D`, or a billboarded `SubViewport` for proper rounded corners and a tail — with a screen-space fallback for long lines.
+- **Character-by-character reveal with punctuation-aware pacing**: a comma pauses, a full stop pauses longer, an ellipsis pauses much longer. The single highest-value detail in the dialogue system; it's what makes text *feel* spoken.
+- Dismiss on input, auto-advance after a generous dwell, never time-pressured.
+- Large-text mode on by default (§10); bubbles auto-size.
 
-### 9.2 Making 1000 photos tractable
+### 8.2 Helping is grief
 
-- **EXIF prefill** (GDScript reader, §1.1): `DateTimeOriginal` and GPS where present. Two of three fields free on digital photos.
-- **Batch apply**: set place, date, precision, tags or people across an entire selection at once. Photo sets cluster by trip; this is where most of the savings come from.
-- **Reverse geocode** lat/lon to a place label from the bundled places table, so EXIF GPS becomes a readable answer automatically.
-- **Cluster suggestions**: group by EXIF date proximity and propose room groupings. The author confirms rather than composes.
-- **Progress dashboard**: how many photos have a location, a date, a description, approved lines. At this scale the author needs to see the shape of the remaining work.
-- **Scanned photos have no EXIF**, which for sixty-year-old photographs is the common case, not the edge case. Manual entry must be the comfortable path and EXIF the pleasant surprise.
+As a player takes more hints in a round, his bubbles degrade — slower reveal, a repeated word, a sentence trailing off — and the hallway dims a notch. Tier 3 should cost something that isn't points.
 
-### 9.3 Session persistence is mandatory
+**At ten photos this matters more than it did at a thousand.** Over a long album the degradation would be a slow ambient texture; across ten rounds it's a visible arc, and if the player leans on him the hall is noticeably darker by the end than if she didn't. That's the game saying something. Worth getting right.
 
-Work-in-progress (`album-draft.json`) autosaves to `user://` / IndexedDB after every change — metadata only, never images, so it stays small. On reopen, restore the draft and re-acquire the source folder (silently with a File System Access handle, or one click with `webkitdirectory`). **100 authoring sessions means losing one is unacceptable.** Also offer "export draft" so the author can keep a backup outside the browser.
+### 8.3 Baking with Claude
 
-### 9.4 Baking with Claude
+Runs in the editor. The Anthropic API supports direct browser calls via the `anthropic-dangerous-direct-browser-access: true` header. Your key is pasted into a field and stored in IndexedDB — **never in the shipped build, never committed.** Add a "clear key" button and a plain warning beside the field.
 
-Runs in the web editor per your decision. The Anthropic API supports direct browser calls via the `anthropic-dangerous-direct-browser-access: true` header. Your key is pasted into a field and stored in IndexedDB — **never in the shipped build, never committed.** Since you're the only person who opens the editor, the exposure is to yourself. Add a "clear key" button and a plain warning next to the field.
+Ten photos per album, so **use `claude-opus-5` and don't think about cost** — a full bake is well under a dollar. v3's batching, resumability and Sonnet-for-bulk recommendations are unnecessary; one call per photo, done.
 
-Model: `claude-sonnet-5` for the bulk pass (~$10 per 1000 photos), `claude-opus-5` for re-baking the ones that matter (~$40–60 for a full pass). Batch ~10 photos per request to cut overhead; respect rate limits with backoff; make the batch resumable, because a 1000-photo bake will be interrupted.
-
-**The prompt's three hard constraints** — these *are* the quality bar:
+**The prompt's three hard constraints** — these *are* the quality bar, and with only ten rounds a single bad hint is 10% of the game:
 
 1. **The ladder must be monotonic, generated in one call per photo.** Tier 1 gives sensory detail and emotion but no place name, country, language or landmark. Tier 2 narrows to region or country. Tier 3 names the place. Generating all three together keeps them consistent; never generate them independently.
-2. **Voice, not narration.** He speaks *to her*, present tense, uses her name, has opinions about the day. Not "This photograph depicts…"
+2. **Voice, not narration.** He speaks *to her*, present tense, uses her name (`curator.playerName`), has opinions about the day. Not "This photograph depicts…"
 3. **Never invent facts.** Only the author's description and metadata. **Hallucinated detail in a memorial gift is this project's worst failure mode** — worse than a crash. Request strict JSON, and show the source description beside every generated line so drift is visible at a glance.
 
 **Graceful degradation:** with no key or a failed call, a local template generator produces serviceable lines from metadata alone (`"Somewhere warm. Somewhere near water."` → `"We were in {country}."` → `"{placeLabel}."`), flagged as needing a human pass. The game must never depend on the bake having happened.
 
 ---
 
-## 10. The curator in game
+## 9. The editor — the "load game" page
 
-### 10.1 Text bubbles carry the whole performance
+One build, reachable from the menu. Five screens, and at ten photos it's a modest piece of work rather than v3's two-milestone monster.
 
-No TTS, so typography does the acting. This deserves real attention:
+1. **Album** — load an existing `.ccalbum`, or start a new one. Shows the ten slots.
+2. **Source** — pick your folder; virtualised thumbnail grid over up to a few thousand files with lazy decode; filter by name, date, subfolder. Drag a photo into a slot.
+3. **Photo detail** — thumbnail, title, description, people, tags; map picker for lat/lon (reuses the gameplay map widget); calendar picker with precision selector. EXIF prefills date and GPS where present, and reverse-geocoding turns GPS into a readable place label.
+4. **Curator** — generate lines with Claude, review and edit every field, regenerate one field, approve. Source description shown alongside.
+5. **Hang & export** — order the ten down the hallway, then validate (with jump-to-problem) and export via `download_buffer`.
 
-- Worldspace bubble above him — `Label3D`, or a billboarded `SubViewport` for proper rounded corners and a tail — with a screen-space fallback for long lines.
-- **Character-by-character reveal with punctuation-aware pacing**: a comma pauses, a full stop pauses longer, an ellipsis pauses much longer. This is the single highest-value detail in the dialogue system; it's what makes text *feel* spoken.
-- Dismiss on input, auto-advance after a generous dwell, never time-pressured.
-- Large-text mode on by default (§11); bubbles auto-size.
+**Ingest per photo:** read bytes → parse EXIF → auto-rotate → downscale to 2048 → generate 4 blur tiers + thumb → encode WebP → prefill truth fields → queue for review.
 
-### 10.2 The narrative hook worth building
+Autosave `album-draft.json` to `user://` after every change (metadata only, never images) so closing the tab doesn't lose work, and offer "export draft" for an off-browser backup.
 
-He's dying. Make it mechanical: as a player takes more hints in a round, his bubbles degrade — slower reveal, a repeated word, a sentence trailing off — and the room dims a notch. Tier 3 should cost something that isn't points. Small work (a timing curve, a light-energy lerp), disproportionate return on the thing the game is actually about.
+**Scanned photos have no EXIF**, which for sixty-year-old photographs is the common case, not the edge case. Manual entry must be the comfortable path and EXIF the pleasant surprise.
 
 ---
 
-## 11. Characters, save, accessibility
+## 10. Characters, save, accessibility
 
-### 11.1 Voxel pipeline
+### 10.1 Voxel pipeline
 
-Characters are authored as data — a layer-stack of coloured grids per body part — and meshed in code with greedy meshing (a 16×32×16 figure drops from ~25k tris to a few hundred). Parts are separate `MeshInstance3D`s in a hierarchy: head, torso, upper/lower arms, hands, upper/lower legs, feet. That hierarchy is both the rig and the customization slot system.
+Characters are authored as data — a layer-stack of coloured grids per body part — and meshed in code with greedy meshing (a 16×32×16 figure drops from ~25k tris to a few hundred). Parts are separate `MeshInstance3D`s: head, torso, upper/lower arms, hands, upper/lower legs, feet. That hierarchy is both the rig and the customization slot system.
 
-Voxel figures in a lit realistic room need help not to look pasted on: they must **receive** the baked light and **cast** real shadows, plus a contact-shadow blob at the feet. **Get one voxel figure into a lit test room at M1** — if that shot doesn't read well, you want to know before building ten room types.
+Voxel figures in a lit realistic hallway need help not to look pasted on: they must **receive** the baked light and **cast** real shadows, plus a contact-shadow blob at the feet. **Get one voxel figure into the lit grey-box hallway at M1** — if that shot doesn't read well, you want to know before building anything.
 
-### 11.2 Customization
+### 10.2 Customization
 
-Slots: hair, head covering, glasses, dress/top, shawl, shoes, cane, jewellery. Colour via per-instance shader uniforms (skin, hair, two garment colours) — cheap, and multiplies the options. The customization scene doubles as the pre-game menu; saves to `user://profile.json`. Third-person camera means the avatar is always on screen, which is what justifies the feature.
+Slots: hair, head covering, glasses, dress/top, shawl, shoes, cane, jewellery. Colour via per-instance shader uniforms (skin, hair, two garment colours) — cheap, and multiplies the options. The customization scene sits off the main menu; saves to `user://profile.json`. Third-person camera means the avatar is always on screen, which is what justifies the feature.
 
-### 11.3 The husband as companion
+### 10.3 The husband as companion
 
-`NavigationAgent3D` on the current room's nav mesh; follows with a lag and a personal-space radius, and **stops to look at photos on his own** — that idle behaviour is most of the characterisation. Head aim at the player during dialogue, at the photo otherwise. Barks from `EventBus` with a cooldown. He should sometimes reach the next frame first and wait. Small thing; makes him a person.
+`NavigationAgent3D` on the hallway's nav mesh; follows with a lag and a personal-space radius, and **stops to look at photographs on his own** — that idle behaviour is most of the characterisation. Head aim at the player during dialogue, at the photo otherwise. Barks from `EventBus` with a cooldown. He should sometimes reach the next frame first and wait. Small thing; makes him a person. At the end he's waiting in the shadow at the far end of the hall.
 
-### 11.4 Controller
+### 10.4 Controller
 
 `CharacterBody3D`, spring-arm camera with collision-aware arm length, walk and slow-walk (no run — wrong tone), ease to a framing position when examining rather than cutting. `Area3D` triggers on frames with a screen prompt.
 
-### 11.5 Save and settings
+### 10.5 Save and settings
 
-One album per load, so no library. Progress in `user://progress/<albumId>.json` — revealed photos, scores, hints taken, current room. At 1000 photos that's ~100 KB of JSON, fine. `force_fs_sync()` after writes on web. Revealed photos **stay** revealed; free-roam unlocks after the ending with every photo clear and the husband willing to talk about any of them.
+Progress is only `progress.json` — best score and per-photo results per album id. No mid-session save: the session is ten to fifteen minutes and ends at the menu, so there's nothing to resume. Settings: mouse/gamepad, sensitivity, FOV, text size, audio buses, quality preset.
 
-### 11.6 Accessibility is load-bearing
+### 10.6 Accessibility is load-bearing
 
-The plausible audience includes elderly players. Large text **on by default**, high-contrast UI option, no timers anywhere, no reflex requirements, adjustable walk speed, full keyboard-only and gamepad-only paths, and a "skip the guessing" toggle that lets someone just walk the gallery and listen. That last one sounds like it undermines the game. It's the option that makes it a gift.
+The plausible audience includes elderly players. Large text **on by default**, high-contrast UI option, no timers anywhere, no reflex requirements, adjustable walk speed, full keyboard-only and gamepad-only paths, and a **"just walk the gallery"** mode that skips the guessing and lets someone look at the photographs while he talks about them. That last one sounds like it undermines the game. It's the option that makes it a gift.
 
 ---
 
-## 12. Google Photos — phase 2
+## 11. Google Photos — phase 2
 
 The old path is gone: since 31 March 2025 the Library API no longer reads a user's existing library, and the broad read scopes were removed. The **Picker API** is the only route (single scope `photospicker.mediaitems.readonly`), and it's well-designed — the user selects inside Google's own UI.
 
-The costs: **OAuth verification is required** (workable for a gift by staying in testing mode with your users added — capped at 100, shows an "unverified app" warning), and **token exchange needs a backend**, which breaks §1.3's serverless property — the thing you specifically wanted.
+The costs: **OAuth verification is required** (workable for a gift by staying in testing mode with your users added — capped at 100, shows an "unverified app" warning), and **token exchange needs a backend**, which breaks the static-hosting property you specifically wanted.
 
-**Recommendation: phase 2, behind a `PhotoSource` interface** with `LocalFolderSource` first, so `GooglePhotosSource` slots in without touching the ingest pipeline or album format. For sixty years of photographs, a folder of scans is the better source anyway.
+**Phase 2, behind a `PhotoSource` interface** with `LocalFolderSource` first, so `GooglePhotosSource` slots in without touching ingest or the album format. For sixty years of photographs, a folder of scans is the better source anyway.
 
 ---
 
-## 13. Milestones
+## 12. Milestones
 
-| # | Milestone | Contents | Exit criterion |
+| # | Milestone | State | What remains |
 |---|---|---|---|
-| **M0** | Foundation | `git init`; **strip `[dotnet]`**; Compatibility renderer; folder structure; autoloads; platform interface; debug overlay; **web + Windows exports working, web build hosted** | Both builds run. GitHub Pages deploy green. |
-| **M1** | Grey-box + style test | Procedural grey-box room, third-person controller, one code-generated voxel figure, fake light shaft, post stack, `tools/blender/` runner. **Verify `AreaLight3D` and `LightmapGI`-across-instances (§8.3).** | The style-clash screenshot reads well **in a browser**. **Go/no-go on art direction (§1.5).** |
-| **M2** | **Vertical slice** | Album schema v1, **byte-range ZIP reader (§3.3)**, blur tiers, texture pipeline, streaming, frame binding, round FSM, placeholder guess input, scoring | One hand-authored 3-photo `.ccalbum` playable in a browser |
-| **M2.5** | **Scale test** | Synthetic 1000-photo album; 100-room streaming; memory and load profiling | 1000-photo album opens in under 3 s and holds frame rate. **Validates §2 before anything is built on it.** |
-| **M3** | Map & calendar | Natural Earth bake, vector map, zoom/pan, pin input, calendar dial, real scoring, results screen, score debug overlay | Guess place and date properly, see the breakdown |
-| **M4** | Curator | Text bubbles with punctuation pacing, hint ladder + costs, barks, tier-3 degradation, template fallback | Hints purchasable, monotonic, costly; bubbles feel spoken |
-| **M5** | Editor core | Folder picker, virtualised grid, batch select, metadata forms, **batch apply**, EXIF reader, map/calendar pickers, blur baking, draft persistence, validator, export | You author a real 100-photo album from a real folder |
-| **M6** | Editor bake | Claude integration, batching, resumable progress, review/approve, cost estimate, template fallback | A 100-photo album fully baked and approved |
-| **M7** | Characters | Voxel generator, customization slots, palettes, profile save, companion navigation and idle behaviour | Avatar customizable; husband walks believably |
-| **M8** | Mansion | 10 room types, 4 dressing variants, wings, Blender AO/GI bakes, prop dressing, **download budget check** | 1000-photo album holds frame rate in a browser; `.pck` under 100 MB |
-| **M9** | Narrative | Opening, inter-room beats, **the hug + fade**, player-chosen ending (§2.4), free-roam, music, ambience | The game has a beginning and an ending |
-| **M10** | Polish | Settings, accessibility pass, balance tuning, bug triage, final hosting | External playtest completed and acted on |
+| **M0** | Foundation | **done** | — |
+| **M1** | Grey-box + style test | **done** | The go/no-go was made from container renders, not from a browser. Nobody has yet opened the web build. |
+| **M2** | Vertical slice | **done** | Album schema, ZIP load, blur tiers, uniform-frame/variable-mat, the round FSM, HUD, guess input and scoring all exist and are tested. Still not played end to end by a human with a real album. |
+| **M3** | Map & calendar | **mostly** | Map widget, pin, zoom/pan, calendar dial, real scoring and the results screen are in. The Natural Earth bake is **not**: no host that serves it is reachable from this environment, so `tools/fetch_geo.py` has to be run once on a machine with network (§16.6). |
+| **M4** | Curator | **part** | Text bubbles with punctuation pacing, the hint ladder, costs and fatigue are in. Idle barks, wrong-guess lines and hall dimming are not. Nothing is baked with Claude yet. |
+| **M5** | Editor | **not started** | The whole thing. This is now the largest single gap, and the one that decides whether the game can be filled with real photographs. |
+| **M6** | Characters | **part** | The figures exist, are drawn rather than voxelled (§16.2), walk, turn to camera and cast shadows. Customization slots, palette UI and profile save are not built. |
+| **M7** | Art pass | **not started** | Both spaces are grey-box. Trim sheets, Blender AO/GI bakes, prop dressing. |
+| **M8** | Narrative | **done** | Hospital opening, "take his hand", the transition, the hug, the fade and the return to the menu all play. No music or ambience. |
+| **M9** | Polish | **not started** | Settings, accessibility pass, "just walk" mode, balance, playtest. |
 
-**Ordering notes.** **M2.5 is new and non-negotiable** — validate the 1000-photo claim on synthetic data before building the editor and mansion on top of it; a synthetic album is an afternoon's script and de-risks the whole design. M3 before M4, because hints are only tunable once real scoring exists. The editor (M5/M6) splits in two because it's now the largest body of work. M5 before M8, so rooms are built against real albums.
+**Ordering notes.** M3 before M4, because hints are only tunable once real scoring exists. M5 before M7, so the hallway is dressed against a real album rather than test data. **M7 is now a single art pass on two small spaces** rather than v3's ten room types — the largest single scope reduction in this revision.
 
-**The ending (M9), specified:** the final room becomes accessible early with the husband waiting there. Player approaches → one `AnimationPlayer` clip on a parent node keys *both* characters' transforms into the hug (far easier than two synchronised rigs; about fifteen keyframes) → light blooms out → fade → final card → free-roam unlocks. No Blender required.
+**The ending (M8), as built:** tenth photo revealed → they walk toward each
+other and meet in the middle → they turn to each other and he says his closing
+line, if the author wrote one → both figures are replaced by one drawn embrace
+pose → the light rises until it is all there is → results screen → main menu.
+
+That differs from the v4 specification in two ways, both deliberate. There is no
+`AnimationPlayer` keying two transforms: an extruded drawing has no joints, so
+the hug is *drawn* (§16.2). And they meet in the middle rather than her walking
+to him, because the ending can fire anywhere in a 27-metre hall and one figure
+crossing all of it at an old woman's pace is most of a minute of nothing.
 
 ---
 
-## 14. Risk register
+## 13. Risk register
 
 | Risk | Severity | Mitigation |
 |---|---|---|
 | C# discovered to be a dead end late | **Critical** | Settled: GDScript. Strip `[dotnet]` at M0. |
-| Whole-album copy into IndexedDB at 1000 photos | **Critical** | Byte-range reader + STOREd entries (§3.3). **This is what makes the scale claim true.** Validate at M2.5. |
-| 100 rooms feel repetitive | **High** | Wings with distinct palettes and dressing (§8.2); player-chosen ending so completion isn't forced (§2.4). |
-| Authoring 1000 photos never finishes | **High** | EXIF prefill, batch apply, cluster suggestions, progress dashboard, mandatory draft persistence (§9.2–9.3). Honest expectation: 80–150 photos is the sweet spot. |
-| "Realistic" unreachable on WebGL 2 | **High** | Reset target (§1.5); Blender-baked AO and GI (§7.3); make unreality diegetic. Go/no-go at M1 on the *web* build. |
-| Web download exceeds a playable size | **High** | `.pck` under 100 MB (a hard GitHub limit, not a preference); trim sheets as primary lever; room *types* not rooms; procedural architecture ships as code. Checked every milestone. |
-| Claude produces a non-monotonic or hallucinated ladder | **High** | Three tiers in one call with per-tier constraints; source description shown beside every line; per-photo approval gates export. |
-| `LightmapGI` doesn't instance cleanly across 100 rooms | Medium | Test at M1. Fallback — Blender-baked GI into room-type textures — is instance-safe by construction and changes nothing downstream (§8.3). |
-| Album schema churn breaks existing albums | Medium | `schemaVersion` + migration hook from day one; validator reports all problems; never remove a field, only deprecate. |
+| Claude produces a non-monotonic or hallucinated ladder | **Critical** | With ten rounds, one bad hint is 10% of the game. Three tiers in one call with per-tier constraints; source description shown beside every line; per-photo approval gates export. Opus, no cost pressure. |
+| The transition doesn't land | **High** | It's the premise, and it's direction not tech. Prototype it early at M1 as a grey-box crossfade; don't leave it to M8 to discover it feels flat. |
+| Mixed photo aspects break the frame art direction | High | Uniform outer frame + variable mat (§4.3), with clamping for extreme aspects. Solve at M2, before the hallway is built. |
+| "Realistic" still not reached | Medium | Budget and Blender have both moved in your favour (§1.4). Go/no-go at M1 on the *web* build, before art investment. |
 | Voxel figures look pasted in | Medium | Resolve at M1 with a lit test shot: shadow casting, contact shadows, shared light response. |
+| Ten photos feels thin | Medium | Lean on pacing and craft rather than volume: `hangOrder` as dramatic structure, the degradation arc (§8.2), a keepsake results screen. Playtest at M9 will tell you plainly. |
+| Editor source-folder grid stalls on a big folder | Medium | Virtualised grid, lazy decode, capped concurrency; scale-tested at M5 against a few thousand files. |
 | Browser file-picker inconsistency | Medium | `webkitdirectory` + lazy handles as the base path (all four major browsers); File System Access API as enhancement; test Chrome, Firefox, Safari at M5. |
-| API key in browser IndexedDB | Medium | Editor-only, never in the shipped build, never committed; clear-key button; you are the only user (§9.4). |
-| Claude bake cost surprises | Low | Cost estimate shown before every batch; Sonnet for bulk, Opus for spot re-bakes. |
-| Scoring feels arbitrary | Medium | Constants in manifest; live debug overlay; tune against a real album with a real player at M3. |
-| Emotional subject matter mishandled | Medium | No fail states, no timers, no "game over." He never says anything you didn't approve. Free-roam after the ending. |
+| `.pck` over 100 MB | Medium | A hard GitHub limit, not a preference. Two small spaces make it comfortable, but check every milestone — trim sheets are still the primary lever. |
+| API key in browser IndexedDB | Medium | Editor-only, never in the shipped build, never committed; clear-key button; you are the only user. |
+| Album schema churn | Low | `schemaVersion` + migration hook from day one; validator reports all problems; never remove a field, only deprecate. |
+| Emotional subject matter mishandled | Medium | No fail states, no timers, no "game over." He never says anything you didn't approve. "Just walk" mode for anyone who'd rather not be tested. |
 
 ---
 
-## 15. Immediate next steps
+## 14. Next steps
 
-1. `git init` and commit current state (the repo isn't under version control yet).
-2. **Remove the `[dotnet]` block from `project.godot`**; set `rendering/renderer/rendering_method` to `gl_compatibility`. Before writing any script.
-3. Get **both** exports working and the web build live on GitHub Pages at M0. Export problems found now are an afternoon; found at M10 they're a crisis.
-4. Write `src/album/` — schema, **byte-range ZIP reader**, validator — plus a hand-written 3-photo test album. **Before any 3D work.**
-5. Write the M2.5 synthetic album generator early (a script that emits a valid 1000-photo `.ccalbum` from placeholder images). Cheap to build, and it's the thing that proves the architecture.
-6. Build the M1 grey-box, look at it in a browser, make the art-direction call.
+In order, most valuable first.
+
+1. **Open the web build in a browser.** It exports (39 MB raw, ~10 MB gzipped,
+   `index.pck` 183 KB) and CI publishes it, but no human has yet loaded it.
+   Everything downstream assumes it works. Set Pages to "GitHub Actions" as its
+   source and push.
+2. **Run `python tools/fetch_geo.py` once** and commit `data/geo/coastlines.json`.
+   Until then the map draws a graticule and the guess panel falls back to its
+   place list (§16.6).
+3. **Build the editor (M5).** The game is playable but cannot yet be *filled*:
+   there is no way to turn a folder of photographs into a `.ccalbum` except
+   `tools/make_test_album.gd`. Nothing else matters as much.
+4. **Bake one real album's curator lines with Claude**, and read all thirty
+   hint lines. Then tune the hint economy against them (M4).
+5. **The art pass (M7).** Both spaces are grey-box and will stay convincing
+   only up to a point.
+6. **Playtest with someone who is not you**, before the gift is given.
 
 ---
 
-## 16. Remaining questions
+## 15. Open question — answered
 
-Only two, and neither blocks M0–M2.
+**Does the hospital scene bookend the game, or only open it?**
 
-1. **Are you happy with the player-chosen ending (§2.4)?** With 1000 photos, gating the hug on completion puts it 20+ hours away, and anyone who plays 80 photos over a few evenings never sees it. Making the final room accessible early — the husband waiting whenever she's ready — means the album becomes a place to visit rather than a completion task. It's a real change to the emotional shape of the thing, so it's your call, not mine.
-2. **How many photos will the first real album actually have?** Not a constraint — the format supports 1000 either way — but it decides how many room types and wings M8 needs to build, and whether the editor's batch tooling is the critical path or a convenience.
+It only opens it. Confirmed 2026-09-16: *"the hospital scene is only at the
+start, the game ends with the hug."* The implementation takes that literally —
+nothing interrupts the hug, and the results screen waits for
+`EventBus.ending_finished` rather than `session_completed`, so the numbers
+arrive after the ending rather than on top of it.
+
+---
+
+## 16. Where the implementation departed from this plan
+
+Each of these cost a bug, a render or an afternoon to learn. They are recorded
+here because the code comments explain what the rule *is*, and this explains
+why the plan says something else.
+
+### 16.1 The gallery is bigger than §6.1 describes
+
+Five bays a side, ten pictures, 9.2 m wide, 6.2 m high, 27.2 m long, with
+clerestory windows above the art. Museum-scale: each picture's opening is
+2.12 × 1.74 m. The clerestory is the only way to light both walls when both
+walls hold art.
+
+### 16.2 The characters are drawn, not voxelled (§10.1)
+
+A voxel figure at a person's scale is nine voxels across the torso, which is
+not pixel art, it is Minecraft. The figures are instead 34 × 56 *drawings*
+extruded to three pixels of thickness: same greedy mesher, twenty-five times
+the detail, a real cast shadow with the character's exact silhouette, and no
+transparency to sort. Three views are drawn (front, side, back), the view is
+chosen from where the camera is, and the sprite is then turned to camera about
+Y — without that last step a flat drawing foreshortens into a plank as soon as
+the camera is oblique.
+
+The cost is that there are no joints. The walk is a bob and a lean rather than
+swinging limbs, and any pose the game needs has to be drawn: hence
+`EmbraceFigure` for the hug, and `RestingHead` for the man in the hospital bed.
+
+### 16.3 Nothing in the data layer may reference an autoload
+
+Autoload names are not registered as GDScript globals until *after* the script
+passed to `--script` is compiled. Anything a headless tool or the test runner
+touches therefore cannot name `Platform`, `GameState` or `EventBus`. That is
+why logging is `CCLog` (a `class_name` with static members) rather than a `Log`
+autoload, and why any tool that needs an autoload is split in two: a thin
+`SceneTree` entry point that loads a `Node` script, which then may name
+anything (`tests/test_host.gd`, `tools/ending_shots.gd`).
+
+### 16.4 …and the tests need a live tree
+
+Worse than the above: during a `SceneTree`'s `_initialize()` the root Window is
+not yet inside the tree. `_ready` never fires, every `global_transform` returns
+identity and logs an error, and `add_child` on the root fails outright during
+its own `_ready` propagation. The round suite was passing 86 assertions against
+nodes that were not really in a scene. The runner now adds a host node, waits
+one `process_frame`, and runs the suites from there.
+
+### 16.5 Fake volumetric light shafts do not survive this corridor
+
+Built, wired up, and off by default. Additive slab geometry with
+`cull_disabled` renders both faces of every box, the fade is evaluated at the
+surface rather than integrated through the volume, and looking down the hall
+stacks ten of them — which blew the upper frame to white at any energy high
+enough to see. Revisit at M7 with either raymarched fog or one camera-facing
+billboard per window.
+
+### 16.6 The map's data cannot be committed from here
+
+Every host that serves Natural Earth answers 403 at this environment's proxy,
+from both the build container and the desktop VM. Rather than invent a
+coastline that would look plausible and be wrong, the map takes its outline
+from a pluggable loader (`CoastlineData`), `tools/fetch_geo.py` bakes the file,
+and with no file present the map draws a graticule and the guess panel leads
+with its place list instead.
+
+The place list was built first, as scaffolding, and is now a feature: §10.6
+wanted an easier mode for players who would rather not be tested on
+coordinates, and that is exactly what it is.
+
+### 16.7 Shadow bias, not corrugated plaster
+
+Godot's default shadow bias (0.03 / 1.0) gives severe acne where a light
+strikes a surface at a grazing angle, which is exactly what a clerestory does
+to the opposite wall. Every render from M1 onward had regular horizontal
+banding across the walls and ceiling that read as ribbed plaster. 0.08 / 4.0
+removes it entirely while keeping the pictures' shadows attached to their
+frames. `tools/diag_shadows.gd` is the four-way comparison that settled it.
+
+### 16.8 Look at it, always
+
+Four rendering bugs, and everything in §16.2 and §16.7, were invisible in the
+numbers and obvious in a picture: window spotlights firing through the wall,
+ten panes rotated into one blown-out slab, light shafts running lengthwise down
+the corridor, a figure whose hips sat below its own leg length, eyes drawn as
+two-pixel bars that read as a blindfold, arms drawn over a chest that read as a
+sash, a head twice life size, and an empty bed where a lambda had written
+pixels into a copy of its own canvas.
+
+Hence `tools/render_shots.gd`, `tools/render_ending.gd`,
+`tools/render_hospital.gd` and the `diag_*` tools. They run headless under
+xvfb with software GL, so CI can take them too. **Any change to geometry,
+lighting or a drawn figure should be looked at before it is called done.**
