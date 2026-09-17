@@ -1,0 +1,145 @@
+name: Test and deploy to GitHub Pages
+
+# Runs the headless test suite, then builds the web export and publishes it.
+#
+# Godot and its export templates are fetched from the GitHub releases rather
+# than a third-party Docker image, so the pipeline does not break when someone
+# else's image tag moves. The templates archive is 1.3 GB, so it is cached.
+#
+# Threads are deliberately OFF in the export preset. GitHub Pages cannot send
+# the COOP/COEP headers that SharedArrayBuffer requires, and the game is
+# designed not to need them (see README).
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+env:
+  GODOT_VERSION: "4.7"
+  GODOT_RELEASE: "stable"
+
+jobs:
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache Godot binary
+        id: cache-godot
+        uses: actions/cache@v4
+        with:
+          path: ~/godot-bin
+          key: godot-${{ env.GODOT_VERSION }}-${{ env.GODOT_RELEASE }}-linux
+
+      - name: Fetch Godot
+        if: steps.cache-godot.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          NAME="Godot_v${GODOT_VERSION}-${GODOT_RELEASE}_linux.x86_64"
+          curl -fsSL -o godot.zip \
+            "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-${GODOT_RELEASE}/${NAME}.zip"
+          unzip -q godot.zip
+          mkdir -p ~/godot-bin
+          mv "$NAME" ~/godot-bin/godot
+          chmod +x ~/godot-bin/godot
+
+      - name: Import project
+        # The first import populates the script class cache. It can report a
+        # non-zero status while still succeeding, so the result is checked by
+        # the test run rather than here.
+        run: ~/godot-bin/godot --headless --path . --import || true
+
+      - name: Run tests
+        run: ~/godot-bin/godot --headless --path . --script tests/run_tests.gd
+
+  build:
+    name: Build web export
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache Godot binary
+        id: cache-godot
+        uses: actions/cache@v4
+        with:
+          path: ~/godot-bin
+          key: godot-${{ env.GODOT_VERSION }}-${{ env.GODOT_RELEASE }}-linux
+
+      - name: Fetch Godot
+        if: steps.cache-godot.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          NAME="Godot_v${GODOT_VERSION}-${GODOT_RELEASE}_linux.x86_64"
+          curl -fsSL -o godot.zip \
+            "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-${GODOT_RELEASE}/${NAME}.zip"
+          unzip -q godot.zip
+          mkdir -p ~/godot-bin
+          mv "$NAME" ~/godot-bin/godot
+          chmod +x ~/godot-bin/godot
+
+      - name: Cache export templates
+        id: cache-templates
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/godot/export_templates
+          key: godot-templates-${{ env.GODOT_VERSION }}-${{ env.GODOT_RELEASE }}
+
+      - name: Fetch export templates
+        if: steps.cache-templates.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          curl -fsSL -o templates.tpz \
+            "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-${GODOT_RELEASE}/Godot_v${GODOT_VERSION}-${GODOT_RELEASE}_export_templates.tpz"
+          unzip -q templates.tpz -d tpz
+          VER="$(cat tpz/templates/version.txt)"
+          mkdir -p "$HOME/.local/share/godot/export_templates/$VER"
+          cp -r tpz/templates/* "$HOME/.local/share/godot/export_templates/$VER/"
+          rm -rf templates.tpz tpz
+
+      - name: Import project
+        run: ~/godot-bin/godot --headless --path . --import || true
+
+      - name: Export web
+        run: |
+          set -euo pipefail
+          mkdir -p build/web
+          ~/godot-bin/godot --headless --path . \
+            --export-release "Web" "$PWD/build/web/index.html"
+          test -f build/web/index.wasm
+          test -f build/web/index.pck
+
+      - name: Prepare for Pages
+        run: |
+          # Without this, Pages' Jekyll step ignores files beginning with "_".
+          touch build/web/.nojekyll
+          echo "--- published files ---"
+          ls -la build/web
+          du -sh build/web
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/web
+
+  deploy:
+    name: Deploy
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -4,11 +4,11 @@ extends CharacterBody3D
 ## her drawn figure is on screen the whole time — which is what justifies the
 ## customization feature existing at all (plan §11.2).
 ##
-## No run. An old woman in her husband's memory does not sprint down a gallery,
-## and a sprint key would undercut every other pacing decision in the game.
+## One speed. No run, because an old woman in her husband's memory does not
+## sprint down a gallery — and no slow-walk modifier either: a nine-metre hall
+## is long enough that a second speed only ever meant holding a key down.
 
-const WALK_SPEED := 1.70
-const SLOW_SPEED := 0.75
+const WALK_SPEED := 2.15
 const ACCELERATION := 7.0
 const FRICTION := 9.0
 const TURN_RATE := 9.0
@@ -93,7 +93,6 @@ func _physics_process(delta: float) -> void:
 
 	var input := Input.get_vector(&"move_left", &"move_right",
 		&"move_forward", &"move_back")
-	var speed := SLOW_SPEED if Input.is_action_pressed(&"walk_slow") else WALK_SPEED
 
 	# Movement is camera-relative, which is the only thing that feels right in
 	# third person.
@@ -101,12 +100,12 @@ func _physics_process(delta: float) -> void:
 	var wish := (basis * Vector3(input.x, 0.0, input.y)).normalized()
 
 	if wish.length_squared() > 0.01:
-		velocity.x = move_toward(velocity.x, wish.x * speed, ACCELERATION * delta)
-		velocity.z = move_toward(velocity.z, wish.z * speed, ACCELERATION * delta)
+		velocity.x = move_toward(velocity.x, wish.x * WALK_SPEED, ACCELERATION * delta)
+		velocity.z = move_toward(velocity.z, wish.z * WALK_SPEED, ACCELERATION * delta)
 		# Face the direction of travel.
 		var target_yaw := atan2(-wish.x, -wish.z)
 		rotation.y = lerp_angle(rotation.y, target_yaw, TURN_RATE * delta)
-		_walk_phase += delta * speed * 5.0
+		_walk_phase += delta * WALK_SPEED * 5.0
 	else:
 		velocity.x = move_toward(velocity.x, 0.0, FRICTION * delta)
 		velocity.z = move_toward(velocity.z, 0.0, FRICTION * delta)

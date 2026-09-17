@@ -87,7 +87,7 @@ func _build() -> void:
 	column.add_child(_status)
 
 	var hint := Label.new()
-	hint.text = "WASD walk · Shift slow · F11 debug overlay · Esc release mouse"
+	hint.text = "WASD to walk · F11 debug overlay · Esc to release the mouse"
 	hint.add_theme_font_size_override("font_size", 12)
 	hint.add_theme_color_override("font_color", Color(0.4, 0.38, 0.35))
 	column.add_child(hint)
