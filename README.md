@@ -19,9 +19,9 @@ transition, ten rounds in the gallery, the hug, the fade, the results screen,
 back to the menu — plus an editor that turns a folder of your own photographs
 into a `.ccalbum`. It is grey-box throughout; the art pass has not happened.
 
-| Area                                                | State                                      |
+| Area                                                |
 | --------------------------------------------------- | ------------------------------------------ |
-| Album format, ZIP IO, validation, migration hook    | done, 134 tests                            |
+| Album format, ZIP IO, validation, migration hook    |
 | EXIF reader (date, GPS, orientation)                | done, 39 tests                             |
 | Image pipeline (downscale, blur ladder, WebP)       | done                                       |
 | Scoring (haversine distance, date, hint economy)    | done, 42 tests                             |
