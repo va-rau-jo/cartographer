@@ -17,6 +17,7 @@ const SUITES := [
 	"res://tests/test_scoring.gd",
 	"res://tests/test_exif.gd",
 	"res://tests/test_album.gd",
+	"res://tests/test_geometry.gd",
 ]
 
 const REPORT_PATH := "user://test_report.txt"
