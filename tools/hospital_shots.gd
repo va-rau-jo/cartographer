@@ -48,6 +48,13 @@ func _head_close_up(scene: Node3D, window: Window) -> void:
 		print("  %-20s  %s" % ["24_hospital_head",
 			"Close on the pillow: does he read as a man asleep?"])
 
+	# Hand the scene back its own camera, and take the borrowed one out of the
+	# tree so nothing else in this run is framed from above the pillow.
+	if scene._camera != null:
+		scene._camera.make_current()
+	window.remove_child(cam)
+	cam.free()
+
 
 func _run() -> void:
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(OUT_DIR))
@@ -68,6 +75,12 @@ func _run() -> void:
 
 	for _i in 8:
 		await get_tree().process_frame
+
+	# The pillow first, while the room is still lit the way it is staged. This
+	# used to be taken at the end of the run, after the rise — which drives the
+	# exposure up until the screen is white, so it came out blank and
+	# "verified" that the bed was occupied by proving nothing at all.
+	await _head_close_up(scene, window)
 
 	var written := 0
 	var elapsed := 0.0
@@ -92,10 +105,6 @@ func _run() -> void:
 			print("  %-20s  t=%5.1fs  %s"
 				% [MOMENTS[moment]["name"], elapsed, MOMENTS[moment]["note"]])
 		moment += 1
-
-	# A close look at the pillow. The head is the one thing in this scene that
-	# has to read, and at the staged distance it is ten pixels tall.
-	await _head_close_up(scene, window)
 
 	print("")
 	print("room           %.1f x %.1f x %.1f m"
