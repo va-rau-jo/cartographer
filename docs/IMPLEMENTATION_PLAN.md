@@ -425,6 +425,12 @@ All constants live in the manifest with code defaults, plus **a debug overlay sh
 
 A dial revealing decade → year → month → day, only as deep as `datePrecision` requires.
 
+Its two ends come from the album: the author's own values where they set any,
+and otherwise a padded span around the photographs' own dates — padded, because
+a dial whose ends are the earliest and latest photographs hands her two of the
+ten answers. The defaults, and the three ways that padding was wrong, are in
+§16.14.
+
 ---
 
 ## 8. The curator
@@ -488,9 +494,15 @@ Voxel figures in a lit realistic hallway need help not to look pasted on: they m
 
 ### 10.2 Customization
 
+**Superseded in part by §16.12: there are two figures now, and either of them
+can be the one you play.**
+
 Slots: hair, head covering, glasses, dress/top, shawl, shoes, cane, jewellery. Colour via per-instance shader uniforms (skin, hair, two garment colours) — cheap, and multiplies the options. The customization scene sits off the main menu; saves to `user://profile.json`. Third-person camera means the avatar is always on screen, which is what justifies the feature.
 
 ### 10.3 The husband as companion
+
+**Superseded in part by §16.12: the companion is whichever of the two the
+player is not.**
 
 `NavigationAgent3D` on the hallway's nav mesh; follows with a lag and a personal-space radius, and **stops to look at photographs on his own** — that idle behaviour is most of the characterisation. Head aim at the player during dialogue, at the photo otherwise. Barks from `EventBus` with a cooldown. He should sometimes reach the next frame first and wait. Small thing; makes him a person. At the end he's waiting in the shadow at the far end of the hall.
 
@@ -774,3 +786,81 @@ Hence `tools/render_shots.gd`, `tools/render_ending.gd`,
 as three vertical letters beside a spin box) and the other `diag_*` tools. They run headless under
 xvfb with software GL, so CI can take them too. **Any change to geometry,
 lighting or a drawn figure should be looked at before it is called done.**
+
+### 16.12 Either of them can be the one you play
+
+§10.2 assumed one avatar and §10.3 assumed the husband was always the
+companion. Both are now wrong. `CastProfile` holds the wife and the husband as
+two whole `FigureProfile`s — a name, a build and five colours each — plus which
+of the two the player walks as, and everything downstream asks it for "the
+player" and "the companion" rather than for her and for him. Choosing the
+husband therefore puts the wife in the hospital bed and at the far end of the
+hall, and nothing else about the fiction moves.
+
+The exception is the embrace at the ending. It is one drawn pose of a specific
+pair, her on the left and him on the right, so `EndingSequence` asks the cast
+for the wife and the husband by name rather than taking the palettes off the
+two figures in front of it. Taking them off the figures is what it did first,
+and playing as the husband put her hair on his body.
+
+Defaults are Chelsea walking and Victor waiting, and a new album's "his name"
+and "her name" fields are prefilled from them — the cast is who plays, those
+two fields are who the album says they are, and the author can still change
+either.
+
+`PixelFigure` gained a second form rather than a second file: trousers with
+daylight between the legs instead of a skirt, a broader squarer torso, a short
+crop with a receding hairline instead of a bun, heavy brows. Same height as
+hers, because of the paragraph above. `RestingHead` takes a form too, so her
+hair spreads on the pillow and his stops at the hairline.
+
+Saved to `user://cast.json`. A `user://profile.json` written by the
+single-figure build is adopted once, as the wife, so nobody loses a figure they
+already made.
+
+### 16.13 A field can be correct, wired up and unreachable
+
+A photograph that arrived without a date could not be given one. The year,
+month and day boxes existed, were connected to the right handlers and wrote
+the right values; they were simply not on screen. Four controls at 108 px plus
+their labels came to about 600 px inside a detail column that is 320 px wide
+on a 1024-wide window, and that column's `ScrollContainer` has horizontal
+scrolling switched off, so the year box was half cut off and month and day were
+past the edge with no scrollbar to reach them.
+
+The fix is layout — two short rows, narrower boxes, the precision menu on its
+own line — but the lesson is the test. `tests/test_editor_screen.gd` asserts
+that **nothing** in the detail column has a combined minimum width greater than
+the column will ever have, which needs no frame and no window because
+`get_combined_minimum_size()` is computed on demand. It found two more
+offenders the moment it was written: the approval checkbox at 381 px and a
+row of two buttons at 346.
+
+Alongside it: a note above the boxes that says whether this photograph brought
+a date and where from, warning that Google's date for a scanned print is the
+day it was scanned; a button that takes the year off the photograph above; and
+one that stamps the year in the box onto every photograph that has none.
+
+### 16.14 The dial had seventy years of future on it
+
+§7.3 did not say where the dial's ends come from, and the first answer was
+wrong in three ways at once. An undated album got 1920 to 2040. An
+auto-computed end was padded past the newest photograph and into the future,
+so one photograph stamped with this year — which is what a Google Photos
+export gives a scanned print — dragged the whole dial to 2040. And ten
+photographs all carrying that same wrong year produced a ten-year dial nobody
+could lose on.
+
+Now: the default span is `DIAL_DEFAULT_MIN` (1980) to this year, an
+auto-computed end never goes past this year, and an auto-computed span is
+widened to at least `DIAL_MIN_SPAN` (30 years). An end the author typed is used
+exactly as typed — only an end they left at zero is moved. The editor starts a
+new album with the dial already at 1980 to this year, and neither box will
+accept a year that has not happened.
+
+Two smaller things in the same place. `GuessPanel._guess_year()` clamps to the
+dial's ends, because the decade slider moves in tens and the year slider adds
+nine, so the last notch of a dial ending in 2026 could be answered as 2029. And
+the slider configuration was sitting after an early return in `_populate()`, so
+walking the gallery with no album loaded left the decade slider on `Range`'s
+default 0..100 and the dial could read 2900.
