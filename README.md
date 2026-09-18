@@ -142,6 +142,30 @@ A failure names the assertion, what was expected and what happened, and exits
 non-zero. If instead you get `Identifier "X" not declared`, the script class
 cache is stale — run `godot --headless --path . --import` once and try again.
 
+### Where albums come from
+
+A **`.ccalbum`** is a zip. Inside it: `album.json` — the manifest with the ten
+photographs' places, dates, hints and hang order — and, per photograph, four
+blur tiers, a full-resolution image and a thumbnail, all WebP. About 3–5 MB,
+so it attaches to an email. The game plays a `.ccalbum` and nothing else,
+because the blur ladder has to exist before she can be shown fog.
+
+You never write that JSON by hand. **The editor does it.** Three ways in:
+
+| | |
+|---|---|
+| **Open a .zip…** | A Google Photos album download, or a Google Takeout export. The editor reads Google's JSON sidecars, so dates, coordinates, captions and the people in each photograph fill themselves in. |
+| **Choose a folder…** | Any folder of JPEGs or PNGs. Dates and GPS come from EXIF where the photographs carry it. |
+| **Open an album…** | An existing `.ccalbum`, to change it and save it again. |
+
+The fastest route for a Google Photos album: open the album in Google Photos,
+select all, download — that gives you one zip — then **Build an album → Open a
+.zip…**, pick your ten, write what you remember, and save. A Takeout export
+works the same way and carries richer metadata.
+
+Nothing is copied out of your library, and a zip is opened rather than
+unpacked: a thousand photographs cost nothing until ten of them are chosen.
+
 ### Bake the map
 
 The map needs the world's outline, which is not in this repository — no host
@@ -153,9 +177,13 @@ python tools\fetch_geo.py
 python tools\fetch_geo.py --check
 ```
 
-That writes `data/geo/coastlines.json` (about 100 KB) and the map picks it up
-next time the game starts. If the download is blocked for you too, fetch
-`ne_110m_coastline.geojson` from
+That writes `data/geo/coastlines.json` and the map picks it up next time the
+game starts. It defaults to Natural Earth **50m** — about six times the detail
+of 110m, which was too coarse to recognise anywhere from once you zoom in.
+`--resolution 10m` gets every bay and headland; `--resolution 110m` is the old
+coarse one.
+
+If the download is blocked for you too, fetch `ne_50m_coastline.geojson` from
 <https://github.com/nvkelso/natural-earth-vector/tree/master/geojson>
 by hand and pass `--from <that file>`.
 
@@ -163,6 +191,12 @@ Until it exists the map draws its graticule and says so, and the guess panel
 leads with a list of the album's places instead. That list is not a stopgap —
 it stays as the easier mode for anyone who would rather not be tested on
 coordinates.
+
+**The map guesses in two stages.** Zoomed out, a click zooms in — to the
+region it landed on, or to a window around it if that was open ocean. Zoomed
+in, a click places the pin. "◀ the whole world", a double-click, or the wheel
+gets you back out. A world map cannot pin a town and a zoomed map cannot find
+a country, so it does both in turn.
 
 ### Generate a test album
 
@@ -324,9 +358,8 @@ that does the work (`tools/render_ending.gd` + `tools/ending_shots.gd`).
 
 ## The album format
 
-A `.ccalbum` is a ZIP holding exactly ten photos and a manifest, around 3–5 MB
-for real photographs, so it attaches to an email. Your thousand-photo library
-stays in your own folder; the editor picks ten out of it.
+See "Where albums come from" above for what a `.ccalbum` is and how to make
+one. This section is about the part that decides how the game feels.
 
 The blur ladder is built from **resolution, not a blur pass**. A 64 px image
 stretched across a 1.5 m canvas is already fog, so each tier is a Lanczos
@@ -355,10 +388,11 @@ it.
 
 In order:
 
-1. **Deploy to Pages and open your own URL.**
-2. **Run `tools/fetch_geo.py`** and commit `data/geo/coastlines.json`.
-3. **Build one real album in the editor**, from your own folder, and play it
-   through. That is the first end-to-end use of the thing.
+1. **Re-run `python tools\fetch_geo.py`** to replace the 110m coastline with
+   the 50m default, now that the map zooms in far enough to notice.
+2. **Deploy to Pages and open your own URL.**
+3. **Build one real album in the editor**, from a Google Photos zip, and play
+   it through. That is the first end-to-end use of the thing.
 4. Bake that album's curator lines and read all thirty hint lines.
 5. The art pass.
 

@@ -508,13 +508,37 @@ The plausible audience includes elderly players. Large text **on by default**, h
 
 ---
 
-## 11. Google Photos — phase 2
+## 11. Google Photos — solved without the API
 
-The old path is gone: since 31 March 2025 the Library API no longer reads a user's existing library, and the broad read scopes were removed. The **Picker API** is the only route (single scope `photospicker.mediaitems.readonly`), and it's well-designed — the user selects inside Google's own UI.
+**Implemented 2026-09-18: a zip is the route in.** A Google Photos album
+downloads as one zip, and a Google Takeout export is the same thing with
+richer metadata. `PhotoArchive` opens either one in place — no unpacking, no
+folder picker, and on the web no `webkitdirectory`, which phones do not offer
+at all. Takeout's per-photograph JSON sidecar carries the date, the
+coordinates, the caption and the people, and its coordinates survive where the
+image's own EXIF has been stripped, which is most of the time. Those are
+exactly the two fields that were worst to type.
 
-The costs: **OAuth verification is required** (workable for a gift by staying in testing mode with your users added — capped at 100, shows an "unverified app" warning), and **token exchange needs a backend**, which breaks the static-hosting property you specifically wanted.
+That leaves the API as a want, not a need. For the record, the state of it:
 
-**Phase 2, behind a `PhotoSource` interface** with `LocalFolderSource` first, so `GooglePhotosSource` slots in without touching ingest or the album format. For sixty years of photographs, a folder of scans is the better source anyway.
+The old path is gone — since 31 March 2025 the Library API no longer reads a
+user's existing library, and the broad read scopes were removed. The **Picker
+API** is the only route (single scope `photospicker.mediaitems.readonly`) and
+it is well designed: the user selects inside Google's own UI.
+
+Its costs are unchanged and all three still bite:
+
+- **OAuth consent.** Workable for a gift by staying in testing mode with your
+  users added (capped at 100, and it shows an "unverified app" warning).
+- **A Google Cloud project** to own the client ID, plus the JavaScript-bridge
+  work to drive the picker from Godot.
+- **The recipient would have to sign in to Google** to load her own album —
+  which for a curated gift is friction in exactly the wrong place, since the
+  ten photographs are *your* choice, not hers.
+
+So: still phase 2, and now clearly optional. Anything added would sit behind
+the same seam `PhotoArchive` and the folder listing already sit behind, so
+neither ingest nor the album format has to change.
 
 ---
 
@@ -525,9 +549,9 @@ The costs: **OAuth verification is required** (workable for a gift by staying in
 | **M0** | Foundation | **done** | — |
 | **M1** | Grey-box + style test | **done** | The go/no-go shot has now been taken *in a browser* (`tools/verify_web.py`), which was M1's actual exit criterion. |
 | **M2** | Vertical slice | **done** | Album schema, ZIP load, blur tiers, uniform-frame/variable-mat, the round FSM, HUD, guess input and scoring all exist and are tested. Still not played end to end by a human with a real album. |
-| **M3** | Map & calendar | **mostly** | Map widget, pin, zoom/pan, calendar dial, real scoring and the results screen are in. The Natural Earth bake is **not**: no host that serves it is reachable from this environment, so `tools/fetch_geo.py` has to be run once on a machine with network (§16.6). |
+| **M3** | Map & calendar | **done** | Map widget with two-stage zoom (click a region, then pin), calendar dial with author-settable ends, real scoring, results screen. The Natural Earth bake is run once with `tools/fetch_geo.py` — 50m by default (§16.6). |
 | **M4** | Curator | **part** | Text bubbles with punctuation pacing, the hint ladder, costs and fatigue are in. Idle barks, wrong-guess lines and hall dimming are not. Nothing is baked with Claude yet. |
-| **M5** | Editor | **mostly** | Folder picking, ten slots, hang order, per-photo metadata, map pinning, EXIF prefill, validation, export and reopening all work, with 75 tests covering the pipeline from ten JPEGs to a loadable `.ccalbum`. Missing: a thumbnail grid (the source list is filenames), draft autosave, and the Claude bake. |
+| **M5** | Editor | **mostly** | Folder picking, **zip import with Google's sidecar metadata**, ten slots, hang order, per-photo metadata, map pinning, EXIF prefill, the calendar dial's ends, validation, export and reopening all work, with 157 tests covering the pipeline from a zip or ten JPEGs to a loadable `.ccalbum`. Missing: a thumbnail grid (the source list is filenames), draft autosave, and the Claude bake. |
 | **M6** | Characters | **part** | The figures exist, are drawn rather than voxelled (§16.2), walk, turn to camera and cast shadows. Customization slots, palette UI and profile save are not built. |
 | **M7** | Art pass | **not started** | Both spaces are grey-box. Trim sheets, Blender AO/GI bakes, prop dressing. |
 | **M8** | Narrative | **done** | Hospital opening, "take his hand", the transition, the hug, the fade and the return to the menu all play. No music or ambience. |
@@ -573,7 +597,7 @@ crossing all of it at an old woman's pace is most of a minute of nothing.
 In order, most valuable first.
 
 1. **Deploy to Pages and open your own URL.** The build itself is verified in
-   a browser (§16.8), but that deployment is not. Set Pages to "GitHub
+   a browser (§16.10), but that deployment is not. Set Pages to "GitHub
    Actions" as its source and push.
 2. **Run `python tools/fetch_geo.py` once** and commit `data/geo/coastlines.json`.
    Until then the map draws a graticule and the guess panel falls back to its
@@ -657,7 +681,7 @@ stacks ten of them — which blew the upper frame to white at any energy high
 enough to see. Revisit at M7 with either raymarched fog or one camera-facing
 billboard per window.
 
-### 16.6 The map's data cannot be committed from here
+### 16.6 The map's data had to be baked outside this environment
 
 Every host that serves Natural Earth answers 403 at this environment's proxy,
 from both the build container and the desktop VM. Rather than invent a
@@ -665,6 +689,11 @@ coastline that would look plausible and be wrong, the map takes its outline
 from a pluggable loader (`CoastlineData`), `tools/fetch_geo.py` bakes the file,
 and with no file present the map draws a graticule and the guess panel leads
 with its place list instead.
+
+Victor ran the tool on 2026-09-17 and `data/geo/coastlines.json` is in the
+repository. It is the 110m bake; 50m is now the tool's default, because at the
+zoom levels the two-stage map reaches (§16.8) 110m is visibly polygonal —
+Italy is a hexagon. Re-running replaces it.
 
 The place list was built first, as scaffolding, and is now a feature: §10.6
 wanted an easier mode for players who would rather not be tested on
@@ -679,7 +708,38 @@ banding across the walls and ceiling that read as ribbed plaster. 0.08 / 4.0
 removes it entirely while keeping the pictures' shadows attached to their
 frames. `tools/diag_shadows.gd` is the four-way comparison that settled it.
 
-### 16.8 The web build is verified in a browser, and how
+### 16.8 Two stages on the map, and why
+
+Pinning on a world map is hopeless — at world zoom a pixel is tens of
+kilometres, and the scoring's half-life is 250 km, so a careful click and a
+careless one score the same. Zooming first with the wheel works but nobody
+does it. So a click zoomed out navigates (to the region it hit, or to a window
+around it over open water) and a click zoomed in answers. The regions are
+drawn and labelled and the readout names the click, because a two-stage
+control is only obvious once.
+
+The region boxes are crude rectangles and nothing is scored against them —
+they are a way of saying "somewhere around here". Where they overlap (Europe
+and Asia, always) the nearer centre wins. Antarctica spans every longitude, so
+fitting it whole means not zooming at all; `MIN_FOCUS_ZOOM` makes every
+region-click visibly do something.
+
+### 16.9 A cancelled dialog has to report itself, twice over
+
+A dismissed file dialog left the button that opened it disabled for the rest
+of the session, on both platforms and for different reasons: Godot's
+`FileDialog.canceled` does not reliably arrive when the OS draws the dialog
+natively, and a cancelled `<input type=file>` fires no event at all in
+browsers without the newer `cancel` event.
+
+Rather than trusting either, `Platform` now owns the lifecycle: it knows what
+is in flight, backends report through `report_picked`/`report_cancelled`, and
+a pick resolves exactly once. The desktop backend also treats the dialog
+hiding without a selection as a cancel; the web backend adds a focus-based
+fallback. And no screen disables a control it would then have to re-enable —
+that was the part that turned a missed signal into a dead button.
+
+### 16.10 The web build is verified in a browser, and how
 
 `tools/verify_web.py` serves the export over HTTP, opens it in headless
 Chromium with software GL, waits for the engine banner and for the gallery to
@@ -699,7 +759,7 @@ Two traps in writing that, both worth knowing:
   in Python receives no console messages at all — which looks exactly like a
   broken build. `page.wait_for_timeout` instead.
 
-### 16.9 Look at it, always
+### 16.11 Look at it, always
 
 Four rendering bugs, and everything in §16.2 and §16.7, were invisible in the
 numbers and obvious in a picture: window spotlights firing through the wall,
