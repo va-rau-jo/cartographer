@@ -163,7 +163,7 @@ You never write that JSON by hand. **The editor does it.** Three ways in:
 | **Open an album…** | An existing `.ccalbum`, to change it and save it again. |
 
 The fastest route for a Google Photos album: open the album in Google Photos,
-select all, download — that gives you one zip — then **Build an album → Open a
+select all, download — that gives you one zip — then **Create an album → Open a
 .zip…**, pick your ten, write what you remember, and save. A Takeout export
 works the same way and carries richer metadata.
 

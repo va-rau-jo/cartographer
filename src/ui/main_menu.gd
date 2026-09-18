@@ -64,6 +64,10 @@ func _build() -> void:
 
 	column.add_child(_spacer(28))
 
+	# Making an album comes first, because it is the first thing that has to
+	# happen: there is nothing to load or to begin until one exists.
+	column.add_child(_make_button("Create an album", _on_editor_pressed))
+
 	_load_button = _make_button("Load album…", _on_load_pressed)
 	column.add_child(_load_button)
 
@@ -71,8 +75,6 @@ func _build() -> void:
 	column.add_child(_play_button)
 
 	column.add_child(_make_button("Walk the gallery (no album)", _enter_gallery))
-
-	column.add_child(_make_button("Build an album", _on_editor_pressed))
 
 	column.add_child(_make_button("Choose how she looks", _on_customize_pressed))
 
