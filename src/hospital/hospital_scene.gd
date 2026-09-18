@@ -37,7 +37,11 @@ const CAM_END := Vector3(1.30, 1.92, 1.35)
 const CAM_LOOK := Vector3(-0.34, 0.76, -1.80)
 
 var _stage: Stage = Stage.DARK
+## Time in the current stage; reset at every stage change.
 var _clock := 0.0
+## Time since the scene began, which never goes backwards. The camera push
+## needs this one.
+var _elapsed := 0.0
 var _camera: Camera3D = null
 var _fade: SceneFade = null
 var _window_light: OmniLight3D = null
@@ -364,6 +368,10 @@ func _build_figures() -> void:
 	add_child(_her)
 	var standing := _standing()
 	_her.build(standing.to_palette(), standing.form)
+	# Same reason as the hall: a drawn figure has to turn to the lens or it is
+	# a card seen edge-on, and this camera looks along the bed rather than at
+	# her. She was rendering about seventy degrees off, as a sliver.
+	_her.auto_face_camera = true
 	_her.position = Vector3(0.62, 0.0, -1.05)
 	_her.rotation_degrees = Vector3(0, 90, 0)
 
@@ -404,6 +412,7 @@ func _build_overlay() -> void:
 
 func _process(delta: float) -> void:
 	_clock += delta
+	_elapsed += delta
 
 	match _stage:
 		Stage.DARK:
@@ -444,7 +453,11 @@ func _unhandled_input(event: InputEvent) -> void:
 func _push_camera(delta: float) -> void:
 	if _camera == null:
 		return
-	var t := clampf(_clock / (FADE_IN_TIME + HOLD_TIME), 0.0, 1.0)
+	# `_elapsed`, not `_clock`: the clock is reset to zero at every stage
+	# change, so the push jumped backwards at DARK→HOLD and then spent the
+	# whole five-second RISE — the move that is supposed to carry her into his
+	# mind — easing AWAY from the bed.
+	var t := clampf(_elapsed / (FADE_IN_TIME + HOLD_TIME), 0.0, 1.0)
 	var eye := CAM_START.lerp(CAM_END, smoothstep(0.0, 1.0, t) * 0.85)
 	_camera.position = _camera.position.lerp(eye, clampf(delta * 3.0, 0.0, 1.0))
 	_camera.look_at(CAM_LOOK, Vector3.UP)

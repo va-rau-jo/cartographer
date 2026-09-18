@@ -12,6 +12,11 @@ signal album_load_failed(problems: Array)       # Array[AlbumValidator.Problem]
 # --- round lifecycle ---
 signal round_started(photo_index: int)
 signal photo_approached(photo_index: int)
+## She walked away from a frame without engaging it. The HUD needs this to
+## take its prompt down: approaching is an edge event on an Area3D and so is
+## leaving, and without the second one the prompt stayed up for the rest of
+## the hall while E did nothing.
+signal photo_left(photo_index: int)
 signal photo_examined(photo_index: int)
 signal guess_submitted(photo_index: int)
 signal round_scored(photo_index: int, breakdown: Dictionary)

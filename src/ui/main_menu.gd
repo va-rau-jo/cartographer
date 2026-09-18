@@ -206,6 +206,7 @@ func _on_album_loaded(album: RefCounted) -> void:
 func _on_album_load_failed(problems: Array) -> void:
 	var lines: PackedStringArray = PackedStringArray()
 	lines.append("[color=#e08080][b]That album could not be loaded.[/b][/color]")
+	var errors := AlbumValidator.count_of(problems, AlbumValidator.Severity.ERROR)
 	var shown := 0
 	for p in problems:
 		var problem: AlbumValidator.Problem = p
@@ -214,7 +215,10 @@ func _on_album_load_failed(problems: Array) -> void:
 		lines.append("  • %s" % problem.message)
 		shown += 1
 		if shown >= 6:
-			lines.append("  • …and more; see the log.")
+			# Only when there really are more: with exactly six errors this
+			# promised a seventh that was not there.
+			if errors > shown:
+				lines.append("  • …and %d more; see the log." % (errors - shown))
 			break
 	_set_status("\n".join(lines))
 	_refresh()

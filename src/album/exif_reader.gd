@@ -118,7 +118,7 @@ static func read(bytes: PackedByteArray) -> Result:
 	var gps_ptr := _pointer(bytes, tiff_start, ifd0, TAG_GPS_IFD, little)
 	if gps_ptr > 0:
 		var gps := _read_ifd(bytes, tiff_start, tiff_start + gps_ptr, little)
-		out.lat = _gps_coord(bytes, tiff_start, gps, TAG_GPS_LAT, TAG_GPS_LAT_REF, "S", little)
+		out.lat = _gps_coord(bytes, tiff_start, gps, TAG_GPS_LAT, TAG_GPS_LAT_REF, "S", little, 90.0)
 		out.lon = _gps_coord(bytes, tiff_start, gps, TAG_GPS_LON, TAG_GPS_LON_REF, "W", little)
 		# 0,0 in the Gulf of Guinea is what a camera writes when it had no fix.
 		if out.has_location() and absf(out.lat) < 0.0001 and absf(out.lon) < 0.0001:
@@ -256,8 +256,14 @@ static func _rationals(b: PackedByteArray, tiff_start: int, entry: Dictionary,
 	return out
 
 
+## One GPS coordinate out of the GPS IFD. `limit` is the largest magnitude
+## that is a coordinate at all: 90 for a latitude, 180 for a longitude. It used
+## to be 180 for both, so a corrupt or misread GPS block could hand back a
+## latitude of 120 — which Geo.is_valid_lat then rejected downstream, with a
+## vaguer message than "that photograph's GPS is unreadable".
 static func _gps_coord(b: PackedByteArray, tiff_start: int, gps: Dictionary,
-		value_tag: int, ref_tag: int, negative_ref: String, little: bool) -> float:
+		value_tag: int, ref_tag: int, negative_ref: String, little: bool,
+		limit: float = 180.0) -> float:
 	if not gps.has(value_tag):
 		return NAN
 	var parts := _rationals(b, tiff_start, gps[value_tag], little)
@@ -273,7 +279,7 @@ static func _gps_coord(b: PackedByteArray, tiff_start: int, gps: Dictionary,
 	if ref.begins_with(negative_ref):
 		value = -value
 
-	if is_nan(value) or absf(value) > 180.0:
+	if is_nan(value) or absf(value) > limit:
 		return NAN
 	return value
 

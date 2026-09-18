@@ -12,6 +12,8 @@ static func run() -> TestFramework:
 	_test_hint_fallback(t)
 	_test_guess_year_range(t)
 	_test_dial_defaults(t)
+	_test_hostile_manifests(t)
+	_test_filenames(t)
 
 	return t
 
@@ -678,3 +680,98 @@ static func _test_dial_defaults(t: TestFramework) -> void:
 
 	t.eq(AlbumSchema.DIAL_DEFAULT_MIN, 1980,
 		"and the default start is the one the brief asked for")
+
+## A manifest that is valid JSON but hostile in shape. from_dict() promises to
+## be permissive and never throw, and the editor's whole error display depends
+## on that promise: it wants a LIST of problems, not an engine error halfway
+## through parsing.
+##
+## The hole was JSON nulls. `Dictionary.get(key, {})` returns the stored null
+## when the key exists, so `"truth": null` — which any exporter that writes
+## nulls for empty objects produces — handed Nil to a Dictionary-typed
+## variable, and the load died instead of being reported.
+static func _test_hostile_manifests(t: TestFramework) -> void:
+	var nulls := {
+		"schemaVersion": 1,
+		"title": "Nulls",
+		"curator": null,
+		"guessing": null,
+		"scoring": null,
+		"hangOrder": null,
+		"photos": [
+			{
+				"id": "p_001",
+				"truth": null,
+				"content": null,
+				"curator": null,
+				"files": null,
+			},
+			{
+				"id": "p_002",
+				"truth": {"date": null, "admin": null, "lat": null, "lon": null},
+				"content": {"people": null, "tags": null},
+				"curator": {"hints": null, "bake": null},
+				"files": {"blurTiers": null},
+			},
+		],
+	}
+
+	var album := AlbumSchema.Album.from_dict(nulls)
+	t.ok(album != null, "a manifest full of nulls still loads")
+	t.eq(album.title, "Nulls", "and keeps what it does say")
+	t.eq(album.photos.size(), 2, "with both photographs")
+
+	for i in album.photos.size():
+		var photo := album.photos[i]
+		t.ok(photo != null, "photograph %d is a real object" % i)
+		if photo == null:
+			continue
+		t.ok(photo.truth != null, "photograph %d has a truth block" % i)
+		t.ok(photo.content != null, "and a content block")
+		t.ok(photo.curator != null, "and a curator block")
+		t.ok(not photo.truth.date.is_set(), "with no date, rather than a wrong one")
+		t.ok(not photo.truth.has_location(), "and no location")
+		t.eq(photo.blur_paths.size(), 0, "and no blur tiers")
+
+	# Which the validator can then report on, which is the whole point.
+	var problems := AlbumValidator.validate(album, true)
+	t.gt(float(problems.size()), 0.0,
+		"and the validator has plenty to say about it (%d problems)"
+			% problems.size())
+
+	# An empty hint-cost list is not an instruction to make hints free: the
+	# tier that names the answer outright used to cost nothing.
+	var free_hints := AlbumSchema.Album.from_dict({
+		"schemaVersion": 1,
+		"scoring": {"hintCosts": []},
+	})
+	t.gt(free_hints.scoring.hint_costs.size(), 0,
+		"an empty hint-cost list falls back to the defaults")
+	t.gt(free_hints.scoring.hint_cost(3), 0.0, "so the last hint still costs")
+
+	# And the whole thing, with nothing in it at all.
+	var bare := AlbumSchema.Album.from_dict({})
+	t.ok(bare != null, "an empty dictionary loads")
+	t.eq(bare.photos.size(), 0, "with no photographs")
+
+
+## The suggested filename. It has to survive a title with digits in it, which
+## no other test in this file has.
+static func _test_filenames(t: TestFramework) -> void:
+	var album := AlbumSchema.Album.create_empty("Trip 2019")
+	t.eq(AlbumIO.suggested_filename(album), "Trip_2019.ccalbum",
+		"digits survive (got %s)" % AlbumIO.suggested_filename(album))
+
+	album.title = "For Maggie"
+	t.eq(AlbumIO.suggested_filename(album), "For_Maggie.ccalbum",
+		"spaces become underscores")
+
+	album.title = "Mum & Dad / 1961-2003"
+	var safe := AlbumIO.suggested_filename(album)
+	t.ok(safe.ends_with(".ccalbum"), "the extension is right (%s)" % safe)
+	t.ok(not safe.contains("/"), "and nothing that breaks a path survives")
+	t.ok(safe.contains("1961"), "while the years do")
+
+	album.title = ""
+	t.eq(AlbumIO.suggested_filename(album), "album.ccalbum",
+		"a nameless album still gets a filename")

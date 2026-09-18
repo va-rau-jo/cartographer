@@ -47,6 +47,11 @@ static func score_round(
 		"distance_score": distance_score,
 		"date_score": date_score,
 		"year_error": _year_error(guess_date, truth.date),
+		# Whether the date scored everything it could. The results screen needs
+		# this: a decade-precision photograph scores full marks anywhere inside
+		# the right decade, and the row used to say "and 4 years out" about a
+		# date that had just been given full credit.
+		"date_exact": date_score >= cfg.max_date_score - 0.001,
 		"raw_score": raw,
 		"spent_fraction": spent,
 		"total_score": total,

@@ -260,10 +260,18 @@ func _build_dust() -> void:
 	particles.amount = 620
 	particles.lifetime = 14.0
 	particles.preprocess = 7.0
+	# In the emitter's OWN space, which is where Godot interprets it — and the
+	# emitter is offset to the middle of the hall below. Written in hall
+	# coordinates it declared a box that did not contain the particles, so
+	# looking at the near half of the hall put the declared box outside the
+	# frustum and the whole dust system was culled: the dust flickered out
+	# depending on where she was standing.
+	var half_len := hallway.hall_length * 0.5
 	particles.visibility_aabb = AABB(
-		Vector3(-HallwayBuilder.HALL_WIDTH, 0, -hallway.hall_length),
-		Vector3(HallwayBuilder.HALL_WIDTH * 2.0, HallwayBuilder.HALL_HEIGHT,
-			hallway.hall_length + 4.0))
+		Vector3(-HallwayBuilder.HALL_WIDTH, -HallwayBuilder.HALL_HEIGHT * 0.5 - 1.0,
+			-half_len - 2.0),
+		Vector3(HallwayBuilder.HALL_WIDTH * 2.0,
+			HallwayBuilder.HALL_HEIGHT + 2.0, hallway.hall_length + 4.0))
 
 	var mat := ParticleProcessMaterial.new()
 	mat.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
@@ -359,6 +367,10 @@ func _build_characters() -> void:
 	companion.build(waiting.to_palette(), waiting.form)
 	companion.transform = hallway.companion_end
 	companion.rotation_degrees = Vector3(0, 180, 0)
+	# Turn the drawing to whoever is looking, every frame. Standing still is
+	# not an excuse: without this the figure is a flat card at a fixed angle,
+	# and at 180° that card was showing its back.
+	companion.auto_face_camera = true
 
 
 ## The round machine, the HUD, the guess panel, the ending and the results.

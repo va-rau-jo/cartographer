@@ -29,6 +29,25 @@ const DIAL_MIN_SPAN := 30
 const DIAL_FLOOR := 1826
 
 
+## A nested object out of a parsed manifest, or an empty one.
+##
+## `Dictionary.get(key, {})` returns the STORED value when the key exists, so
+## `"truth": null` in a manifest — which any exporter that writes nulls for
+## empty objects produces, and any hand edit can — handed `Nil` to a
+## `Dictionary`-typed variable and to `from_dict`, and the whole load died with
+## an engine error instead of the list of problems the editor is built to show.
+## from_dict() promises to be permissive; this is what keeps that promise.
+static func sub_dict(data: Dictionary, key: String) -> Dictionary:
+	var value: Variant = data.get(key)
+	return value if typeof(value) == TYPE_DICTIONARY else {}
+
+
+## The same, for an array field.
+static func sub_array(data: Dictionary, key: String) -> Array:
+	var value: Variant = data.get(key)
+	return value if typeof(value) == TYPE_ARRAY else []
+
+
 ## This year, as the calendar knows it. Wrapped so the dial and the validator
 ## agree, and so a test can reason about it.
 static func current_year() -> int:
@@ -117,11 +136,11 @@ class Truth extends RefCounted:
 		t.lat = float(d.get("lat", NAN)) if d.get("lat") != null else NAN
 		t.lon = float(d.get("lon", NAN)) if d.get("lon") != null else NAN
 		t.place_label = str(d.get("placeLabel", ""))
-		var admin: Dictionary = d.get("admin", {})
+		var admin := AlbumSchema.sub_dict(d, "admin")
 		t.country_code = str(admin.get("country", ""))
 		t.region = str(admin.get("region", ""))
 		t.location_precision_km = float(d.get("locationPrecisionKm", 2.0))
-		t.date = PhotoDate.from_dict(d.get("date", {}))
+		t.date = PhotoDate.from_dict(AlbumSchema.sub_dict(d, "date"))
 		t.date_precision = AlbumSchema.precision_from_string(str(d.get("datePrecision", "year")))
 		return t
 
@@ -156,8 +175,8 @@ class Content extends RefCounted:
 		var c := Content.new()
 		c.title = str(d.get("title", ""))
 		c.description = str(d.get("description", ""))
-		c.people = PackedStringArray(d.get("people", []))
-		c.tags = PackedStringArray(d.get("tags", []))
+		c.people = PackedStringArray(AlbumSchema.sub_array(d, "people"))
+		c.tags = PackedStringArray(AlbumSchema.sub_array(d, "tags"))
 		c.private_note = str(d.get("privateNote", ""))
 		return c
 
@@ -187,16 +206,16 @@ class CuratorLines extends RefCounted:
 
 	static func from_dict(d: Dictionary) -> CuratorLines:
 		var c := CuratorLines.new()
-		for h in d.get("hints", []):
+		for h in AlbumSchema.sub_array(d, "hints"):
 			if typeof(h) == TYPE_DICTIONARY:
 				c.hints.append(str(h.get("text", "")))
 			else:
 				c.hints.append(str(h))
-		c.idle_barks = PackedStringArray(d.get("idleBarks", []))
-		c.wrong_guess_far = PackedStringArray(d.get("wrongGuessFar", []))
-		c.wrong_guess_near = PackedStringArray(d.get("wrongGuessNear", []))
+		c.idle_barks = PackedStringArray(AlbumSchema.sub_array(d, "idleBarks"))
+		c.wrong_guess_far = PackedStringArray(AlbumSchema.sub_array(d, "wrongGuessFar"))
+		c.wrong_guess_near = PackedStringArray(AlbumSchema.sub_array(d, "wrongGuessNear"))
 		c.reveal_monologue = str(d.get("revealMonologue", ""))
-		var bake: Dictionary = d.get("bake", {})
+		var bake := AlbumSchema.sub_dict(d, "bake")
 		c.bake_model = str(bake.get("model", ""))
 		c.baked_utc = str(bake.get("bakedUtc", ""))
 		c.approved_by_author = bool(bake.get("approvedByAuthor", false))
@@ -248,13 +267,13 @@ class Photo extends RefCounted:
 	static func from_dict(d: Dictionary) -> Photo:
 		var p := Photo.new()
 		p.id = str(d.get("id", ""))
-		var files: Dictionary = d.get("files", {})
+		var files := AlbumSchema.sub_dict(d, "files")
 		p.full_path = str(files.get("full", ""))
-		p.blur_paths = PackedStringArray(files.get("blurTiers", []))
+		p.blur_paths = PackedStringArray(AlbumSchema.sub_array(files, "blurTiers"))
 		p.thumb_path = str(files.get("thumb", ""))
 		p.aspect = float(d.get("aspect", 1.0))
-		p.truth = Truth.from_dict(d.get("truth", {}))
-		p.content = Content.from_dict(d.get("content", {}))
+		p.truth = Truth.from_dict(AlbumSchema.sub_dict(d, "truth"))
+		p.content = Content.from_dict(AlbumSchema.sub_dict(d, "content"))
 		p.curator = CuratorLines.from_dict(d.get("curatorLines", {}))
 		return p
 
@@ -302,8 +321,13 @@ class ScoringConfig extends RefCounted:
 		s.max_date_score = float(d.get("maxDateScore", 2000.0))
 		s.distance_half_life_km = float(d.get("distanceHalfLifeKm", 250.0))
 		s.unblur_cost_fraction = float(d.get("unblurCostFraction", 0.20))
-		if d.has("hintCosts"):
-			s.hint_costs = PackedFloat32Array(d.get("hintCosts"))
+		# An empty or null list is not an instruction to make every hint free:
+		# hint_cost returns 0.0 past the end of the list, so a manifest with
+		# "hintCosts": [] used to give away the tier that names the answer for
+		# nothing. Only a list with something in it replaces the defaults.
+		var costs := AlbumSchema.sub_array(d, "hintCosts")
+		if not costs.is_empty():
+			s.hint_costs = PackedFloat32Array(costs)
 		s.max_spent_fraction = float(d.get("maxSpentFraction", 0.85))
 		return s
 
@@ -369,20 +393,20 @@ class Album extends RefCounted:
 		a.created_utc = str(d.get("createdUtc", ""))
 		a.cover_photo_id = str(d.get("coverPhotoId", ""))
 
-		var cur: Dictionary = d.get("curator", {})
+		var cur := AlbumSchema.sub_dict(d, "curator")
 		a.curator_voice_name = str(cur.get("voiceName", ""))
 		a.curator_player_name = str(cur.get("playerName", ""))
 		a.curator_style = str(cur.get("style", ""))
 		a.closing_line = str(cur.get("closingLine", ""))
 
-		var guessing: Dictionary = d.get("guessing", {})
+		var guessing := AlbumSchema.sub_dict(d, "guessing")
 		a.guess_year_min = int(guessing.get("yearMin", 0))
 		a.guess_year_max = int(guessing.get("yearMax", 0))
 
-		a.scoring = ScoringConfig.from_dict(d.get("scoring", {}))
-		a.hang_order = PackedStringArray(d.get("hangOrder", []))
+		a.scoring = ScoringConfig.from_dict(AlbumSchema.sub_dict(d, "scoring"))
+		a.hang_order = PackedStringArray(AlbumSchema.sub_array(d, "hangOrder"))
 
-		for pd in d.get("photos", []):
+		for pd in AlbumSchema.sub_array(d, "photos"):
 			if typeof(pd) == TYPE_DICTIONARY:
 				a.photos.append(Photo.from_dict(pd))
 		return a
@@ -455,11 +479,13 @@ class Album extends RefCounted:
 			# carry the same wrong year — a folder of scans, say — would
 			# otherwise give her a ten-year range. Only an end the author left
 			# to us is moved: an author who said "start at 2010" meant it.
-			if hi - lo < DIAL_MIN_SPAN:
-				if not lo_is_mine:
-					lo = hi - DIAL_MIN_SPAN
-				elif not hi_is_mine:
-					hi = lo + DIAL_MIN_SPAN
+			# Only when BOTH ends are ours. An author who names one end has
+			# said what they want and the other end is already as wide as it
+			# can go — widening past that would either overrule their value or
+			# push the dial into the future, and this rule is not worth
+			# either.
+			if not lo_is_mine and not hi_is_mine and hi - lo < DIAL_MIN_SPAN:
+				lo = hi - DIAL_MIN_SPAN
 
 		# Photography's own span, and then a sane ordering.
 		lo = clampi(lo, 1826, 2100)

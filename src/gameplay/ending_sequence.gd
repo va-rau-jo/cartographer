@@ -37,7 +37,9 @@ const ARRIVE_EPSILON := 0.10
 const SETTLE_TIME := 1.6
 const EMBRACE_TIME := 5.2
 const FADE_TIME := 4.0
-## How long the drawn pair holds before the light starts to rise.
+## How long the drawn pair holds before the light starts to rise. This is the
+## value the EMBRACE stage waits on; `EMBRACE_TIME` above is what an earlier
+## cut of the sequence used and nothing reads it now.
 const FADE_HOLD := 2.2
 
 ## Camera framing for the embrace: off to the side, a little low, looking
@@ -193,8 +195,14 @@ func _enter_settle() -> void:
 func _tick_settle(delta: float) -> void:
 	_drive_camera(delta, 1.0)
 	_face_figures()
+	# Both of them settle. Only hers was decayed here, and animate_walk eases
+	# the bob and lean out by about 13% per call — so the single call in
+	# _enter_settle left him standing at most of his walking lean for the whole
+	# beat, frozen mid-stride beside her in the two-shot the camera is framing.
 	if player.figure != null:
 		player.figure.animate_walk(delta, 0.0)
+	if companion != null:
+		companion.animate_walk(delta, 0.0)
 
 	# His last line, if the author wrote one. If not, silence — which is the
 	# better default for someone else's marriage.

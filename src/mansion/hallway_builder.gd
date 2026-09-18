@@ -179,6 +179,21 @@ static func build() -> Result:
 		{"st": ceil_st, "name": "ceiling"},
 	]:
 		var st: SurfaceTool = entry["st"]
+		# FLAT, not smooth.
+		#
+		# SurfaceTool's default smooth group averages normals across every
+		# vertex at the same position, and each surface here holds many boxes
+		# whose faces meet at their corners — the wall, its piers, its
+		# pilasters and the cornice are all one surface. So not a single flat
+		# face kept its true normal: the inner face of a side wall came out
+		# with normals at 45° to it, and plaster, pilasters and cornice steps
+		# all shaded like rounded pillows under precisely the grazing
+		# clerestory light this hall is built around.
+		#
+		# -1 marks the vertices flat, so generate_normals() computes one normal
+		# per face. It has to be set before committing and applies to what was
+		# already added, which is why it is here rather than at each add_vertex.
+		st.set_smooth_group(-1)
 		st.generate_normals()
 		st.generate_tangents()
 		st.commit(mesh)

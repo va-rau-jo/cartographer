@@ -324,7 +324,20 @@ func _test_pin(t: TestFramework) -> void:
 	var pin := map.pin_lat_lon()
 	t.close(pin.x, 48.8566, 0.25, "the pin keeps its latitude")
 	t.close(pin.y, 2.3522, 0.25, "and its longitude")
-	t.eq(reported.size(), 1, "and it says so once")
+
+	# And it says NOTHING. Putting the pin somewhere programmatically is how a
+	# screen shows where a photograph already is; it is not the player moving
+	# it. Emitting here made the setter a write as well as a read, and the
+	# editor's own handler wrote the pin's rounded round trip back over the
+	# author's typed coordinates.
+	t.eq(reported.size(), 0,
+		"but a pin placed in code does not report itself as a move")
+
+	# A click does report, because that one is the player.
+	map.size = Vector2(400, 200)
+	map._click(Vector2(200, 100))
+	map._click(Vector2(210, 105))
+	t.gt(float(reported.size()), 0.0, "a click on the map does report")
 
 	# The distance from the pin to the truth is what the round is scored on, so
 	# the error a pin introduces has to be tiny.

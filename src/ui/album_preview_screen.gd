@@ -304,14 +304,39 @@ func _on_files_picked(files: Array) -> void:
 		_status.text = "Could not read %s." % file.name
 		return
 
-	if not AlbumService.load_album_bytes(bytes):
-		_status.text = "%s could not be loaded — see the menu for why." % file.name
-		return
-
+	# Whether it loaded or not, this screen now describes whatever the service
+	# holds — and on a failure it holds NOTHING, because load_album_bytes
+	# unloads before it tries. Repopulating is what stops the screen keeping
+	# the old album's title and tiles with Begin still armed over an empty
+	# service, which sent the player into the hospital with no album at all.
+	var ok := AlbumService.load_album_bytes(bytes)
 	album = AlbumService.album()
 	_reveal.set_pressed_no_signal(false)
 	_revealed = false
 	_populate()
+
+	if not ok:
+		var problems := AlbumService.loaded.problems if AlbumService.loaded != null \
+			else []
+		_status.text = "%s could not be loaded.%s" % [file.name,
+			_first_problems(problems)]
+
+
+## The reasons, on this screen. They used to be left to the menu's own handler
+## for EventBus.album_load_failed — but the menu was freed on the way here, so
+## nothing showed them anywhere.
+func _first_problems(problems: Array) -> String:
+	var lines: PackedStringArray = PackedStringArray()
+	for p in problems:
+		var problem: AlbumValidator.Problem = p
+		if problem.severity != AlbumValidator.Severity.ERROR:
+			continue
+		lines.append("  • %s" % problem.message)
+		if lines.size() >= 3:
+			break
+	if lines.is_empty():
+		return ""
+	return "\n" + "\n".join(lines)
 
 
 func _on_back() -> void:

@@ -35,6 +35,7 @@ func run() -> TestFramework:
 	_test_costs(t, rc, album)
 	_test_full_session(t, rc, album)
 	_test_cancel(t, rc, album)
+	_test_hint_count_from_album(t, rc, album)
 	_test_no_album(t, rc)
 
 	_teardown()
@@ -305,20 +306,43 @@ func _test_cancel(t: TestFramework, rc: RoundController,
 	t.eq(GameState.phase, GameState.Phase.GUESSING, "the round opened")
 
 	# Stepping back must not strand the phase machine, and must not score.
+	#
+	# It goes back to APPROACH rather than to GALLERY_IDLE, because she is
+	# still standing in front of the photograph — backing out of the guess
+	# panel does not move her. This assertion used to read GALLERY_IDLE, and
+	# then quietly put `_nearby` and the phase back by hand before re-opening,
+	# which is what hid the bug: in the game, Area3D's body_entered is an edge
+	# event and does not fire again while she is inside the volume, so E was
+	# dead and the prompt gone until she walked out and back in again.
+	var approached: Array = []
+	var connection := func(index: int) -> void: approached.append(index)
+	EventBus.photo_approached.connect(connection)
+
 	rc.cancel_guessing()
-	t.eq(GameState.phase, GameState.Phase.GALLERY_IDLE,
-		"cancelling returns to the hall")
+	t.eq(GameState.phase, GameState.Phase.APPROACH,
+		"cancelling puts her back in front of the photograph")
+	t.eq(rc.nearby_index(), 3, "which is still the one she is standing at")
+	t.eq(approached, [3], "and the prompt is put back up")
 	t.eq(rc.active_index(), -1, "cancelling clears the active photograph")
 	t.ok(GameState.results[3] == null, "cancelling does not record a score")
 	t.ok(not GameState.is_played(3), "a cancelled photograph is still unplayed")
 
-	# And she must be able to come back to it.
-	rc._nearby = 3
-	GameState.phase = GameState.Phase.APPROACH
+	# So E works again with no further help: nothing is touched here.
 	rc._begin_examine(3)
 	t.eq(GameState.phase, GameState.Phase.GUESSING,
-		"a cancelled photograph can be re-opened")
+		"a cancelled photograph can be re-opened on the spot")
 	rc.cancel_guessing()
+
+	# Walking away and cancelling from nowhere leaves the hall, not an
+	# approach to a frame she is not at.
+	rc._nearby = -1
+	GameState.phase = GameState.Phase.APPROACH
+	rc._begin_examine(3)
+	rc.cancel_guessing()
+	t.eq(GameState.phase, GameState.Phase.GALLERY_IDLE,
+		"cancelling with no frame nearby returns to the hall")
+
+	EventBus.photo_approached.disconnect(connection)
 
 
 ## The gallery can be entered with no album at all, to walk the space. Nothing
@@ -363,3 +387,48 @@ func _reset(rc: RoundController) -> void:
 		frame.revealed = false
 	rc._active = -1
 	rc._nearby = -1
+
+
+## How many hints there are is the ALBUM's decision, by how many costs it
+## lists. It used to be a hardcoded 3 in the controller, while
+## ScoringConfig.hint_cost returns 0.0 past the end of the list — so an album
+## carrying two costs still granted a third hint, and the third hint is the one
+## that names the answer outright. It was free, and the HUD advertised it as
+## costing nothing.
+func _test_hint_count_from_album(t: TestFramework, rc: RoundController,
+		album: AlbumSchema.Album) -> void:
+	var keep := album.scoring.hint_costs
+
+	# Two costs: two hints, and neither of them free.
+	album.scoring.hint_costs = PackedFloat32Array([0.10, 0.20])
+	_reset(rc)
+	t.eq(rc.hint_tier_count(), 2, "two listed costs mean two hints")
+
+	rc._nearby = 0
+	GameState.phase = GameState.Phase.APPROACH
+	rc._begin_examine(0)
+
+	var granted := 0
+	var free_hints := 0
+	while rc.can_hint() and granted < 6:
+		var cost := rc.next_hint_cost()
+		if rc.purchase_hint().is_empty():
+			break
+		granted += 1
+		if cost <= 0.0:
+			free_hints += 1
+	t.eq(granted, 2, "and only two are ever granted")
+	t.eq(free_hints, 0, "neither of them free")
+	t.ok(rc.purchase_hint().is_empty(), "asking again gives nothing")
+	t.close(rc.spent_fraction(), 0.30, 0.001, "and the spend is the two costs")
+	rc.cancel_guessing()
+
+	# More costs than there are lines to say: still three.
+	album.scoring.hint_costs = PackedFloat32Array([0.1, 0.2, 0.3, 0.4, 0.5])
+	t.eq(rc.hint_tier_count(), 3,
+		"more costs than lines still means three hints")
+
+	# And the album's own three, which is the normal case.
+	album.scoring.hint_costs = keep
+	t.eq(rc.hint_tier_count(), 3, "three costs mean three hints")
+	_reset(rc)

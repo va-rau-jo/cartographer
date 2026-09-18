@@ -52,6 +52,7 @@ func _ready() -> void:
 	_build()
 
 	EventBus.photo_approached.connect(_on_approached)
+	EventBus.photo_left.connect(_on_left)
 	EventBus.round_started.connect(_on_round_started)
 	EventBus.round_finished.connect(_on_round_finished)
 	EventBus.round_scored.connect(_on_scored)
@@ -255,17 +256,27 @@ func _on_approached(index: int) -> void:
 	_prompt.text = "" if played else "E   —   look at this photograph"
 
 
+## She walked away without engaging it. Without this the prompt stayed on
+## screen for the rest of the hall, offering a key that did nothing.
+func _on_left(_index: int) -> void:
+	_prompt.text = ""
+
+
 func _on_round_started(_index: int) -> void:
 	_prompt.text = ""
 
 
 func _on_round_finished(_index: int) -> void:
 	_prompt.text = ""
-	_fatigue = GameState.reliance()
+	_fatigue = maxf(_fatigue, GameState.reliance())
 
 
+## Leaning on him tires him. This only ever rises: it used to be assigned
+## `tier / 3.0`, so after nine rounds of asking — reliance 1.0, his slowest —
+## the FIRST hint of the tenth round reset him to 0.33 and he suddenly spoke
+## faster than he had all game, at the point she had leaned on him hardest.
 func _on_hint_purchased(_index: int, tier: int, _cost: float) -> void:
-	_fatigue = clampf(float(tier) / 3.0, 0.0, 1.0)
+	_fatigue = maxf(_fatigue, clampf(float(tier) / 3.0, 0.0, 1.0))
 
 
 func _on_unblur_purchased(_index: int, _tier: int, _cost: float) -> void:

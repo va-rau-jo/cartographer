@@ -380,13 +380,24 @@ func adopt(loaded: AlbumIO.LoadedAlbum) -> String:
 	if loaded == null or not loaded.is_ok():
 		return "That album could not be read."
 
-	album = loaded.album
+	# A COPY, not the object the loader is holding. Taking the reference meant
+	# every keystroke in the editor mutated the album behind
+	# AlbumService.album() — so opening a gift from the preview screen, typing
+	# a new title and a few hints, and then pressing Back left the preview and
+	# the gallery playing those unsaved edits as though they had been saved.
+	# The manifest round trip is the same one the file itself goes through.
+	album = AlbumSchema.Album.from_dict(loaded.album.to_dict())
 	slots = []
 	_next_id = 1
 
 	for photo in album.hung_photos():
 		var slot := Slot.new()
 		slot.photo = photo
+		# source_width/source_height stay at zero: nothing is decoded here and
+		# the manifest does not record the original pixel size, only the
+		# aspect. The editor's source line leaves the dimensions out when they
+		# are zero rather than printing "0 × 0", which is what it used to do
+		# for every photograph in a reopened album.
 		slot.source_name = "(from the album)"
 		for path in _asset_paths(photo):
 			var bytes := loaded.read_asset(path)

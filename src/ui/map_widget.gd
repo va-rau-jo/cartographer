@@ -149,11 +149,20 @@ func clear_pin() -> void:
 
 ## Place the pin at a known position — for restoring a guess in progress, and
 ## for the tests.
+## Put the pin somewhere, without claiming the player did it.
+##
+## This used to emit `pin_moved`, which made it a WRITE as well as a read: the
+## editor calls it to show where a photograph already is, that emission ran the
+## editor's own pin handler, and the handler wrote the pin's unit-space round
+## trip back over the author's coordinates. Merely clicking a photograph in the
+## list changed its latitude from 54.4858123 to 54.4858131 — and typing an
+## exact coordinate into the box saved a slightly different one.
+##
+## A caller that wants the signal emits it itself; the only one that should is
+## whatever the player actually touched.
 func set_pin_lat_lon(lat: float, lon: float) -> void:
 	_pin_unit = Geo.to_unit(lat, Geo.wrap_lon(lon))
 	_has_pin = true
-	var degrees := Geo.from_unit(_pin_unit)
-	pin_moved.emit(degrees.x, degrees.y)
 	queue_redraw()
 
 
@@ -165,6 +174,13 @@ func reset_view() -> void:
 	_zoom = MIN_ZOOM
 	_centre = Vector2(0.5, 0.5)
 	_hover_region = -1
+	# Any drag or click in progress is abandoned with the view. Without this a
+	# double-click — which is how you get back to the whole world — reset the
+	# view on the second press and then the release that followed it was still
+	# a click, so it immediately zoomed back into whatever was under the
+	# cursor. And the first click of the pair dropped a pin on the way past.
+	_dragging = false
+	_drag_from = Vector2.INF
 	queue_redraw()
 
 

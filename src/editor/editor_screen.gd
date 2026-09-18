@@ -60,6 +60,11 @@ var _map: MapWidget = null
 var _source_note: Label = null
 var _preview: TextureRect = null
 var _date_note: Label = null
+## What an in-flight export will be called, kept so the status line can report
+## the truth once the platform says whether it was written.
+var _pending_export := ""
+## Why "Edit this album" could not open the loaded album, if it could not.
+var _adopt_failed := ""
 
 var _choose_folder: Button = null
 var _choose_archive: Button = null
@@ -77,6 +82,7 @@ func _ready() -> void:
 
 	Platform.files_picked.connect(_on_files_picked)
 	Platform.pick_cancelled.connect(_on_pick_cancelled)
+	Platform.file_delivered.connect(_on_file_delivered)
 
 	# Arrived from the album preview's "Edit this album": the album is already
 	# loaded in AlbumService, and the flag is the only thing a scene change
@@ -90,7 +96,10 @@ func _ready() -> void:
 				% session.album.title
 				+ " opened is left alone.")
 			return
-		_set_status(error)
+		# Say why, and do not then overwrite it with the cheerful line at the
+		# bottom of this function: the author pressed "Edit this album" and
+		# needs to know it did not happen.
+		_adopt_failed = error
 
 	# A new album starts with a dial that spans their lifetime rather than two
 	# zeroes: 1980 to this year. The author can move either end, or put a zero
@@ -107,7 +116,10 @@ func _ready() -> void:
 	_read_album_fields()
 
 	_refresh()
-	_set_status("Choose a folder of photographs to begin.")
+	if _adopt_failed.is_empty():
+		_set_status("Choose a folder of photographs to begin.")
+	else:
+		_set_status("%s Starting a new album instead." % _adopt_failed)
 
 
 # ------------------------------------------------------------------- build
@@ -263,7 +275,12 @@ func _build_sources() -> Control:
 	_source_list = ItemList.new()
 	_source_list.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_source_list.add_theme_font_size_override("font_size", LABEL)
-	_source_list.item_activated.connect(func(_i: int) -> void: _on_add())
+	# Through the same guard as the button: on web `Platform.read_file` awaits
+	# a JS callback, and a second double-click during it re-entered _on_add and
+	# hung the same photograph twice.
+	_source_list.item_activated.connect(func(_i: int) -> void:
+		if _pending_source < 0 and not session.is_full():
+			_on_add())
 	column.add_child(_source_list)
 
 	_add_button = Button.new()
@@ -680,6 +697,9 @@ func _open_album_file(file: Platform.PickedFile) -> void:
 	var loaded := AlbumIO.load_from_bytes(bytes)
 	var error := session.adopt(loaded)
 	if not error.is_empty():
+		# The loader opened a ZIPReader to get this far; a failed adopt used to
+		# walk away and leave it open, one handle per attempt.
+		loaded.close()
 		_set_status(error)
 		return
 
@@ -802,6 +822,10 @@ func _current() -> AlbumSchema.Photo:
 	return slot.photo if slot != null else null
 
 
+func _have_selection() -> bool:
+	return session.slot_at(_selected) != null
+
+
 ## Run `action` against the selected photograph, if there is one. Every field
 ## handler goes through this so none of them has to null-check.
 func _with_photo(action: Callable) -> void:
@@ -817,6 +841,9 @@ func _with_photo(action: Callable) -> void:
 ## from the same summer is the common case, and typing 1974 ten times is not
 ## the author's job.
 func _on_copy_year() -> void:
+	if not _have_selection():
+		_set_status("Pick a photograph on the wall first.")
+		return
 	if _selected <= 0:
 		_set_status("There is nothing above this one to copy a year from.")
 		return
@@ -835,6 +862,13 @@ func _on_copy_year() -> void:
 ## Stamp this year onto every photograph that has none. Nothing that already
 ## carries a date is touched — the point is the scans that arrived blank.
 func _on_fill_years() -> void:
+	# The year box belongs to the selected photograph. With nothing selected it
+	# still held the LAST one's value and still stamped it onto everything —
+	# which `_open_archive_file` made reachable, because it deselects while
+	# photographs are still hung.
+	if not _have_selection():
+		_set_status("Pick a photograph on the wall first.")
+		return
 	var year := int(_year.value)
 	if year <= 0:
 		_set_status("Put a year in the box first.")
@@ -907,6 +941,12 @@ func _refresh() -> void:
 
 	var have := _selected >= 0 and _selected < session.slot_count()
 	_detail.modulate.a = 1.0 if have else 0.45
+	# Actually inert, not just faded: a field nothing can be written to must
+	# not accept typing.
+	_detail.mouse_filter = Control.MOUSE_FILTER_PASS if have \
+		else Control.MOUSE_FILTER_IGNORE
+	_detail.process_mode = Node.PROCESS_MODE_INHERIT if have \
+		else Node.PROCESS_MODE_DISABLED
 	_add_button.disabled = session.is_full() or _pending_source >= 0
 	_export_button.disabled = not session.can_export()
 
@@ -948,16 +988,26 @@ func _refresh_wall_labels() -> void:
 
 func _refresh_problems() -> void:
 	var problems := session.problems(true)
-	if problems.is_empty():
+	var errors := AlbumValidator.count_of(problems, AlbumValidator.Severity.ERROR)
+	var warnings := AlbumValidator.count_of(problems, AlbumValidator.Severity.WARNING)
+
+	# "Ready to save" when there is nothing left that stops a save, not only
+	# when the list is literally empty: an album whose one remaining problem is
+	# a NOTE used to print "0 things to fix, 0 worth a look" over an empty
+	# list, with the Save button enabled.
+	if errors == 0 and warnings == 0:
 		_problem_text.text = "[color=#8fbf8f]Ready to save.[/color]"
 		return
 
 	var lines: PackedStringArray = PackedStringArray()
-	var errors := AlbumValidator.count_of(problems, AlbumValidator.Severity.ERROR)
-	var warnings := AlbumValidator.count_of(problems, AlbumValidator.Severity.WARNING)
 	lines.append("[b]%d thing%s to fix[/b], %d worth a look"
 		% [errors, "" if errors == 1 else "s", warnings])
 
+	# Counted over the ones that are actually listed. The tail used to be
+	# `problems.size() - shown`, which included the notes it had just skipped,
+	# so it said "and 8 more" when seven remained — and "and 0 more" when the
+	# list happened to end exactly at the limit.
+	var listed := errors + warnings
 	var shown := 0
 	for problem in problems:
 		if problem.severity == AlbumValidator.Severity.NOTE:
@@ -974,7 +1024,8 @@ func _refresh_problems() -> void:
 		lines.append("[color=%s]•[/color] %s%s" % [colour, where, problem.message])
 		shown += 1
 		if shown >= 5:
-			lines.append("  …and %d more." % (problems.size() - shown))
+			if listed > shown:
+				lines.append("  …and %d more." % (listed - shown))
 			break
 
 	_problem_text.text = "\n".join(lines)
@@ -1010,11 +1061,18 @@ func _read_photo_fields() -> void:
 		_preview.texture = null
 		if _date_note != null:
 			_date_note.text = ""
+		_clear_photo_fields()
 		return
 	var photo := slot.photo
 
-	_source_note.text = "%s · %d × %d · %s" % [slot.source_name,
-		slot.source_width, slot.source_height, _kb(slot.bytes_held())]
+	# The dimensions only when they are known: an album reopened from a file
+	# decodes nothing, so they are zero, and "0 × 0" is worse than silence.
+	if slot.source_width > 0 and slot.source_height > 0:
+		_source_note.text = "%s · %d × %d · %s" % [slot.source_name,
+			slot.source_width, slot.source_height, _kb(slot.bytes_held())]
+	else:
+		_source_note.text = "%s · %s" % [slot.source_name,
+			_kb(slot.bytes_held())]
 	_preview.texture = slot.thumbnail()
 
 	_photo_title.text = photo.content.title
@@ -1059,6 +1117,30 @@ func _refresh_date_note(photo: AlbumSchema.Photo) -> void:
 	_date_note.text = "%s, %s." % [photo.truth.date.label(), came_from]
 
 
+## Empty the detail column and stop it taking input.
+##
+## Dimming it was not enough: `_refresh` only set `modulate.a`, which is
+## purely visual, so with nothing selected every field still held the previous
+## photograph's text and was still typable — and what was typed went nowhere,
+## silently, because `_with_photo` had nothing to write to.
+func _clear_photo_fields() -> void:
+	_photo_title.text = ""
+	_description.text = ""
+	_place.text = ""
+	_lat.set_value_no_signal(0.0)
+	_lon.set_value_no_signal(0.0)
+	_year.set_value_no_signal(0.0)
+	_month.set_value_no_signal(0.0)
+	_day.set_value_no_signal(0.0)
+	for field in _hints:
+		field.text = ""
+	_monologue.text = ""
+	_private.text = ""
+	_approved.set_pressed_no_signal(false)
+	if _map != null:
+		_map.clear_pin()
+
+
 # ------------------------------------------------------------------- export
 
 func _on_export() -> void:
@@ -1071,10 +1153,28 @@ func _on_export() -> void:
 		_set_status("Could not write the album.")
 		return
 
+	# Say what is about to happen, not that it has: on desktop this only opens
+	# a save dialog, and the editor used to report "Saved …" on the next line
+	# whether the author chose a path or pressed Cancel. Platform tells us how
+	# it actually went, through _on_file_delivered below.
 	var filename := session.suggested_filename()
+	_pending_export = "%s — %d KB, %d photographs" \
+		% [filename, bytes.size() / 1024, session.slot_count()]
+	_set_status("Choose where to put %s…" % filename)
 	Platform.deliver_file(bytes, filename, "application/zip")
-	_set_status("Saved %s — %d KB, %d photographs."
-		% [filename, bytes.size() / 1024, session.slot_count()])
+
+
+func _on_file_delivered(ok: bool, path: String) -> void:
+	var what := _pending_export
+	_pending_export = ""
+	if what.is_empty():
+		return
+	if not ok:
+		_set_status("Nothing was saved. The album is still here — press Save"
+			+ " the album when you are ready.")
+		return
+	_set_status("Saved %s.%s" % [what,
+		"" if path.is_empty() else "\n%s" % path])
 
 
 func _set_status(text: String) -> void:

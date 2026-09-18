@@ -35,6 +35,7 @@ const SUITES := [
 	"res://tests/test_preview.gd",
 	"res://tests/test_cast.gd",
 	"res://tests/test_editor_screen.gd",
+	"res://tests/test_camera.gd",
 ]
 
 

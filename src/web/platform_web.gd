@@ -159,9 +159,13 @@ func read_file(file: Platform.PickedFile) -> PackedByteArray:
 	return JavaScriptBridge.js_buffer_to_packed_byte_array(buf)
 
 
+## The browser owns the download from here: it goes to wherever the user's
+## browser puts downloads, and there is no callback to say it landed. So the
+## report names the file and says nothing about a path.
 func deliver_file(bytes: PackedByteArray, filename: String, mime: String) -> void:
 	JavaScriptBridge.download_buffer(bytes, filename, mime)
 	CCLog.info("platform", "offered download %s (%d bytes)" % [filename, bytes.size()])
+	_host.report_delivered(true, filename)
 
 
 func sync_user_fs() -> void:

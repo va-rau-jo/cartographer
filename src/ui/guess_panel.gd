@@ -265,6 +265,12 @@ func _on_round_started(_index: int) -> void:
 	_populate()
 	_root.visible = true
 	_place_list.deselect_all()
+	# The month goes back to "(not sure)" every round. It used to persist, so
+	# two month-precision photographs in a row meant the second one opened
+	# already answered with the first one's month — and submitting without
+	# touching it scored that month as her guess.
+	if _month != null:
+		_month.select(0)
 	if _map != null:
 		_map.clear_pin()
 		_map.reset_view()

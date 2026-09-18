@@ -46,22 +46,51 @@ func read_file(file: Platform.PickedFile) -> PackedByteArray:
 	return bytes
 
 
+## The save dialog, and the one thing it must not do: keep the album.
+##
+## The lambda below captures `bytes`, and a PackedByteArray is a value type in
+## GDScript, so the dialog holds a full copy of the packed album. Freeing it
+## used to happen only inside `file_selected` — so every CANCELLED export left
+## a FileDialog parented to this autoload for the rest of the process, holding
+## several megabytes, unboundedly. It also reported nothing, which is why the
+## editor could claim a cancelled save had been written.
 func deliver_file(bytes: PackedByteArray, filename: String, _mime: String) -> void:
 	var dlg := FileDialog.new()
 	dlg.file_mode = FileDialog.FILE_MODE_SAVE_FILE
 	dlg.access = FileDialog.ACCESS_FILESYSTEM
 	dlg.current_file = filename
 	dlg.use_native_dialog = true
+
+	# One resolution per dialog, whichever way it ends and however many of
+	# these signals the platform decides to send.
+	var done := [false]
+	var finish := func(ok: bool, path: String) -> void:
+		if done[0]:
+			return
+		done[0] = true
+		_host.report_delivered(ok, path)
+		if is_instance_valid(dlg):
+			dlg.get_parent().remove_child(dlg)
+			dlg.queue_free()
+
 	dlg.file_selected.connect(func(path: String) -> void:
 		var f := FileAccess.open(path, FileAccess.WRITE)
 		if f == null:
 			CCLog.error("platform", "cannot write %s" % path)
+			finish.call(false, path)
 			return
 		f.store_buffer(bytes)
 		f.close()
 		CCLog.info("platform", "wrote %s (%d bytes)" % [path, bytes.size()])
-		dlg.queue_free()
-	)
+		finish.call(true, path))
+
+	dlg.canceled.connect(func() -> void: finish.call(false, ""))
+	# A native dialog does not always report `canceled`, the same trap the
+	# open dialog has: treat it hiding without a choice as a cancel.
+	dlg.visibility_changed.connect(func() -> void:
+		if not dlg.visible:
+			finish.call(false, ""))
+
 	_host.add_child(dlg)
 	dlg.popup_centered_ratio(0.7)
 

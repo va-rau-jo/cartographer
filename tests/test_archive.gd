@@ -25,6 +25,8 @@ func run() -> TestFramework:
 	_test_plain_zip(t)
 	_test_takeout_sidecars(t)
 	_test_sidecar_shapes(t)
+	_test_no_stolen_metadata(t)
+	_test_staging_is_per_archive(t)
 	_test_refusals(t)
 	_test_into_the_editor(t)
 
@@ -315,3 +317,85 @@ func _test_into_the_editor(t: TestFramework) -> void:
 	session.set_sources([])
 	t.ok(session.archive == null, "choosing a folder closes the archive")
 	t.eq(session.source_count(), 0, "and replaces its listing")
+
+## A sidecar may only be shared by NAME, never by coincidence.
+##
+## The truncated-name match used to accept any sidecar whose name was a prefix
+## of the photograph's, so a photograph with no sidecar of its own quietly took
+## a neighbour's — and a sidecar carries the place and the date the player is
+## scored against. The answer to one photograph became the answer to another,
+## silently, in the album the author then gave away.
+func _test_no_stolen_metadata(t: TestFramework) -> void:
+	var archive := PhotoArchive.from_bytes(_zip({
+		# beach.jpg has its own sidecar. beach2.jpg does not, and its name
+		# begins with "beach".
+		"a/beach.jpg": _jpeg(41),
+		"a/beach.jpg.json": _sidecar("beach.jpg", TAKEN_1991, 48.8566, 2.3522),
+		"a/beach2.jpg": _jpeg(42),
+		# Same shape one level down: a shorter name and a longer one.
+		"b/holiday_0.jpg": _jpeg(43),
+		"b/holiday_0.jpg.json":
+			_sidecar("holiday_0.jpg", TAKEN_2003, 64.1466, -21.9426),
+		"b/holiday_02.jpg": _jpeg(44),
+	}))
+	t.ok(archive.is_ok(), "the archive opens")
+
+	var by_name := {}
+	for entry in archive.entries():
+		by_name[entry.name] = entry
+
+	t.eq(by_name.size(), 4, "all four photographs are listed")
+
+	var owner: PhotoArchive.Entry = by_name.get("beach.jpg")
+	t.ok(owner != null and owner.had_sidecar,
+		"the photograph the sidecar is named after gets it")
+	if owner != null:
+		t.ok(owner.has_location(), "with its coordinates")
+		t.close(owner.lat, 48.8566, 0.001, "which are Paris")
+
+	var thief: PhotoArchive.Entry = by_name.get("beach2.jpg")
+	t.ok(thief != null, "the other photograph is there")
+	if thief != null:
+		t.ok(not thief.had_sidecar,
+			"but it has no sidecar of its own, and takes nobody else's")
+		t.ok(not thief.has_location(),
+			"so it has no location — not Paris")
+		t.ok(not thief.has_date(), "and no date")
+
+	var longer: PhotoArchive.Entry = by_name.get("holiday_02.jpg")
+	t.ok(longer != null and not longer.had_sidecar,
+		"nor does a longer name take a shorter name's sidecar")
+	if longer != null:
+		t.ok(not longer.has_location(), "and it stays without coordinates")
+
+	t.eq(archive.with_sidecar_count(), 2,
+		"exactly the two photographs that have one are counted")
+
+	archive.close()
+
+
+## A staged archive is the caller's to keep only until it is closed.
+func _test_staging_is_per_archive(t: TestFramework) -> void:
+	var first := PhotoArchive.from_bytes(_zip({
+		"one/IMG_0001.jpg": _jpeg(51),
+	}))
+	t.ok(first.is_ok(), "the first archive opens")
+
+	# A second archive must not truncate the file the first one is reading.
+	var second := PhotoArchive.from_bytes(_zip({
+		"two/IMG_9001.jpg": _jpeg(52),
+		"two/IMG_9002.jpg": _jpeg(53),
+	}))
+	t.ok(second.is_ok(), "the second archive opens")
+	t.eq(second.count(), 2, "with its own two photographs")
+	t.eq(first.count(), 1, "and the first still has its one")
+
+	# The real test: the first archive can still READ, and reads its own bytes.
+	var image := first.read_image(first.entries()[0])
+	t.ok(not image.is_empty(),
+		"the first archive can still read its photograph")
+	t.eq(first.entries()[0].name, "IMG_0001.jpg",
+		"and it is still its own photograph")
+
+	first.close()
+	second.close()

@@ -14,6 +14,15 @@ signal files_picked(files: Array)
 ## filtered out.
 signal pick_cancelled()
 
+## A file handed to the user has actually been written (or has not).
+## `path` is where it went on desktop, and the filename on web, where the
+## browser owns the download and there is nothing to report but the name.
+##
+## This exists because the editor said "Saved album.ccalbum" the instant the
+## save dialog OPENED — so cancelling the dialog left the author told their
+## album had been written when nothing had.
+signal file_delivered(ok: bool, path: String)
+
 ## What kind of pick is in flight, so a screen can say so and can refuse to
 ## start a second one. NONE between picks.
 enum Picking { NONE, IMAGE_FOLDER, ALBUM_FILE, PHOTO_ARCHIVE }
@@ -131,6 +140,11 @@ func read_file(file: PickedFile) -> PackedByteArray:
 func deliver_file(bytes: PackedByteArray, filename: String, mime: String = "application/octet-stream") -> void:
 	_ensure_backend()
 	_backend.deliver_file(bytes, filename, mime)
+
+
+## Backends call this when the file is written, or when the user walked away.
+func report_delivered(ok: bool, path: String) -> void:
+	file_delivered.emit(ok, path)
 
 
 ## Flush user:// so it survives a page refresh. No-op on desktop.

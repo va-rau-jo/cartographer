@@ -64,11 +64,19 @@ func unload() -> void:
 
 ## Texture for a photo at a blur tier. Tier is clamped into range, so callers
 ## can pass a tier that ran off the end without checking.
+## Texture for a photo at a blur tier, or the nearest BLURRIER one that
+## decoded. Never a sharper one: a missing tier must not give away more of the
+## photograph than she has paid for.
 func tier_texture(photo_id: String, tier: int) -> ImageTexture:
 	var arr: Array = _tier_textures.get(photo_id, [])
 	if arr.is_empty():
 		return null
-	return arr[clampi(tier, 0, arr.size() - 1)]
+	var i := clampi(tier, 0, arr.size() - 1)
+	while i >= 0:
+		if arr[i] != null:
+			return arr[i]
+		i -= 1
+	return null
 
 
 ## Full-resolution texture, decoded on first request. Call this one frame
@@ -121,8 +129,13 @@ func _decode_all_tiers() -> void:
 		for i in photo.blur_paths.size():
 			var tex := _decode_texture(loaded.read_asset(photo.blur_paths[i]),
 				"%s/blur_%d" % [photo.id, i])
+			# A null goes in for a tier that would not decode, rather than
+			# nothing at all. Appending only the successes compacted the array,
+			# and `tier_texture` indexes it BY TIER — so one corrupt tier 1
+			# handed her tier 2's sharper image at tier 1's price, and the tier
+			# she paid the most for was the one she had already seen.
+			textures.append(tex)
 			if tex != null:
-				textures.append(tex)
 				decoded += 1
 		_tier_textures[photo.id] = textures
 

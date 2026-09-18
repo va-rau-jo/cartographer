@@ -93,7 +93,15 @@ static func process(bytes: PackedByteArray, filename: String,
 		out.assets[tier_paths[i]] = tier_bytes
 
 	var thumb := _resized(img, THUMB_LONG_EDGE)
-	out.assets[paths["thumb"]] = thumb.save_webp_to_buffer(true, THUMB_WEBP_QUALITY)
+	var thumb_bytes := thumb.save_webp_to_buffer(true, THUMB_WEBP_QUALITY)
+	# Checked like every other asset. It was not, and `ok` was set to true
+	# regardless — so a failed thumbnail encode shipped an album that loaded
+	# with no errors and showed a blank tile in every preview, for ever, with
+	# nothing said to the author.
+	if thumb_bytes.is_empty():
+		out.error = "WebP encode failed for the thumbnail"
+		return out
+	out.assets[paths["thumb"]] = thumb_bytes
 
 	out.ok = true
 	return out

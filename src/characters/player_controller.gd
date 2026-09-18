@@ -21,6 +21,9 @@ const MOUSE_SENSITIVITY := 0.0022
 ## While examining a photograph the camera eases to a framing position rather
 ## than cutting, and movement is locked out.
 const EXAMINE_BLEND := 4.0
+## How close the returning camera has to get to the arm's own pose before the
+## arm takes it back. Small enough that the handover cannot be seen.
+const RETURN_SNAP := 0.06
 
 var figure: PixelFigure = null
 var camera: Camera3D = null
@@ -32,6 +35,8 @@ var _examining := false
 ## During the ending, something else drives both her body and the camera.
 var _cutscene := false
 var _examine_target := Transform3D.IDENTITY
+## True while the camera is off the arm and on its way back to it.
+var _returning := false
 var _walk_phase := 0.0
 
 
@@ -104,27 +109,49 @@ func begin_cutscene() -> void:
 		return
 	_cutscene = true
 	_examining = false
+	_returning = false
 	velocity = Vector3.ZERO
-
-	if camera != null and camera.get_parent() == _arm:
-		var keep := camera.global_transform
-		var host := get_parent()
-		if host != null:
-			_arm.remove_child(camera)
-			host.add_child(camera)
-			camera.global_transform = keep
+	_detach_camera()
 
 
 func end_cutscene() -> void:
 	if not _cutscene:
 		return
 	_cutscene = false
+	_attach_camera()
 
-	# Back onto the arm, at the length the arm expects.
-	if camera != null and _arm != null and camera.get_parent() != _arm:
-		camera.get_parent().remove_child(camera)
-		_arm.add_child(camera)
-		camera.transform = Transform3D.IDENTITY
+
+## Take the camera off the spring arm, keeping where it is, so that something
+## else can write its transform. Anything that wants to aim the camera has to
+## do this first — see the header above.
+func _detach_camera() -> void:
+	if camera == null or _arm == null or camera.get_parent() != _arm:
+		return
+	var host := get_parent()
+	if host == null:
+		return
+	var keep := camera.global_transform
+	_arm.remove_child(camera)
+	host.add_child(camera)
+	camera.global_transform = keep
+
+
+## Back onto the arm, at the length the arm expects.
+func _attach_camera() -> void:
+	if camera == null or _arm == null or camera.get_parent() == _arm:
+		return
+	camera.get_parent().remove_child(camera)
+	_arm.add_child(camera)
+	camera.transform = Transform3D.IDENTITY
+
+
+## Where the camera sits when the arm is driving it: the arm's own pose pushed
+## back by however much the arm's raycast currently allows.
+func _arm_camera_pose() -> Transform3D:
+	if _arm == null:
+		return camera.global_transform if camera != null else Transform3D.IDENTITY
+	return _arm.global_transform * Transform3D(Basis(),
+		Vector3(0.0, 0.0, _arm.get_hit_length()))
 
 
 func is_in_cutscene() -> bool:
@@ -140,6 +167,9 @@ func _physics_process(delta: float) -> void:
 		_blend_to_examine(delta)
 		_animate_walk(delta)
 		return
+
+	if _returning:
+		_blend_back(delta)
 
 	var input := Input.get_vector(&"move_left", &"move_right",
 		&"move_forward", &"move_back")
@@ -188,14 +218,37 @@ func _animate_walk(delta: float) -> void:
 ## the round controller when she engages a frame.
 func begin_examine(frame_transform: Transform3D) -> void:
 	_examining = true
+	_returning = false
 	var forward := frame_transform.basis.z.normalized()
 	_examine_target = Transform3D(
 		Basis.looking_at(-forward, Vector3.UP),
 		frame_transform.origin + forward * 2.6 + Vector3(0, -0.25, 0))
 
+	# The camera has to come off the arm for the blend below to survive: the
+	# arm rewrites its children's positions every physics frame, so the
+	# framing blend only ever changed where the camera LOOKED and never where
+	# it stood. She engaged a photograph and the view swung round to stare at
+	# the wall from five metres away, which is not a close-up.
+	_detach_camera()
+
 
 func end_examine() -> void:
+	if not _examining:
+		return
 	_examining = false
+
+	# Inside a cutscene the ending owns the camera: leave it exactly where the
+	# ending put it. Handing it back to the arm here would undo the framing
+	# mid-shot, which is the whole thing begin_cutscene exists to prevent.
+	if _cutscene:
+		return
+
+	# Otherwise ease back to the walking camera rather than snapping: the arm
+	# cannot be handed a camera two metres from where it wants it.
+	_returning = camera != null and _arm != null \
+		and camera.get_parent() != _arm
+	if not _returning:
+		_attach_camera()
 
 
 func is_examining() -> bool:
@@ -207,3 +260,20 @@ func _blend_to_examine(delta: float) -> void:
 	var current := camera.global_transform
 	camera.global_transform = current.interpolate_with(
 		_examine_target, clampf(EXAMINE_BLEND * delta, 0.0, 1.0))
+
+
+## Coming out of examine: walk the detached camera back to where the arm wants
+## it and hand it over once it is close enough that the handover is invisible.
+func _blend_back(delta: float) -> void:
+	if camera == null or camera.get_parent() == _arm:
+		_returning = false
+		return
+
+	var target := _arm_camera_pose()
+	var current := camera.global_transform
+	camera.global_transform = current.interpolate_with(
+		target, clampf(EXAMINE_BLEND * delta, 0.0, 1.0))
+
+	if camera.global_position.distance_to(target.origin) < RETURN_SNAP:
+		_attach_camera()
+		_returning = false

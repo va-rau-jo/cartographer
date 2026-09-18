@@ -197,15 +197,25 @@ func _draw() -> PackedByteArray:
 	#
 	# Drawing every arm on top — the first attempt — put two diagonal bands
 	# across her chest that read as a sash rather than as arms around a back.
+	# Her arm round his waist goes on FIRST, before he does, so he covers the
+	# stretch of it that is behind him: all that shows is the span between the
+	# two of them and, later, her hand on his far side. Drawn last, like her
+	# other arm, it was a navy band straight across his chest — the same
+	# "sash" mistake his own arms made over her, and fixed the same way.
+	_draw_her_waist_arm(c, her)
 	_draw_him(c, his)
 	_draw_his_arms(c, his)
 	_draw_her(c, her)
 	_draw_his_hands(c, his)
-	_draw_her_arms(c, her)
+	_draw_her_shoulder_arm(c, her)
 
-	# Light from the left, per person, so each one's own tones shade correctly.
-	_shade_right(c, 26, her.shade_map())
-	_shade_right(c, 26, his.shade_map())
+	# Light from the left, PER PERSON — each split two pixels right of that
+	# figure's own centre. One shared split at 26 put the line between them
+	# rather than down each of them: he stands at x 28..44, so all of him fell
+	# in his shade tones (his hair base and cloth base had literally zero
+	# pixels) and almost none of her did. In the last shot of the game.
+	_shade_right(c, HER_X + 2, her.shade_map())
+	_shade_right(c, HIS_X + 2, his.shade_map())
 	_ground_contact(c, [her.shoe, his.shoe])
 	return c
 
@@ -248,7 +258,7 @@ func _draw_her(c: PackedByteArray, t: Tones) -> void:
 ## standing very close.
 func _draw_her_head(c: PackedByteArray, cx: int, base_y: int, t: Tones) -> void:
 	_round_rect(c, cx - 4, base_y, cx + 4, base_y + 10, t.skin)
-	_round_rect(c, cx - 5, base_y + 7, cx + 5, base_y + 11, t.hair)
+	_round_rect(c, cx - 5, base_y + 6, cx + 5, base_y + 10, t.hair)
 	_rect(c, cx - 5, base_y + 4, cx - 4, base_y + 8, t.hair)
 	_rect(c, cx + 4, base_y + 4, cx + 5, base_y + 8, t.hair)
 	# The bun, at the back of the crown.
@@ -298,24 +308,43 @@ func _draw_his_arms(c: PackedByteArray, t: Tones) -> void:
 
 ## The hands of his that come round her far side. Drawn after her, because a
 ## hand you cannot see is not holding anyone.
+##
+## They have to OVERLAP her silhouette. Her cardigan reaches about x = 14 at
+## these heights and these were drawn at 10..13, entirely clear of her — so
+## instead of hands gripping her they were two skin-coloured blobs floating in
+## the air beside her, which is what the flat render showed.
 func _draw_his_hands(c: PackedByteArray, t: Tones) -> void:
-	# On her far shoulder blade.
-	_rect(c, HER_X - 9, 33, HER_X - 7, 35, t.wrap)
-	_rect(c, HER_X - 10, 32, HER_X - 8, 34, t.skin)
-	# And at her far side, lower.
-	_rect(c, HER_X - 9, 28, HER_X - 7, 30, t.wrap_shade)
-	_rect(c, HER_X - 10, 27, HER_X - 8, 29, t.skin_shade)
+	# On her far shoulder blade: fingers round her, knuckles proud of her edge.
+	_rect(c, HER_X - 8, 32, HER_X - 6, 34, t.skin)
+	_px(c, HER_X - 8, 35, t.wrap)
+	# And at her far side, lower, in shade because it is the far hand.
+	_rect(c, HER_X - 8, 27, HER_X - 6, 29, t.skin_shade)
+	_px(c, HER_X - 8, 30, t.wrap_shade)
 
 
-## Her arms, up over his shoulders — the part of the pose that is meant to be
-## seen, so it goes on top of everything.
-func _draw_her_arms(c: PackedByteArray, t: Tones) -> void:
-	# Up around his neck, hand on his far shoulder.
-	_slope(c, HER_X + 5, 37, HIS_X + 1, 43, 3, t.wrap)
-	_rect(c, HIS_X + 1, 43, HIS_X + 4, 45, t.skin)
-	# The other arm across his back, lower.
-	_slope(c, HER_X + 6, 31, HIS_X + 2, 35, 2, t.wrap_shade)
-	_rect(c, HIS_X + 2, 34, HIS_X + 4, 36, t.skin_shade)
+## Her arms, round him — the part of the pose that is meant to be seen, so it
+## goes on top of everything.
+##
+## One arm UP, over his shoulder, and one round his waist. Both used to run
+## straight across the middle of his chest at almost the same height, two
+## parallel bands ending in hands halfway across him: at this size that read
+## as a pair of straps rather than as arms, which is the same mistake the
+## single figure's front view made and fixed (see PixelFigure's header).
+##
+## The hands land ON his far edge — his jumper reaches about x = 42 — so each
+## arm ends in a hand that is gripping him rather than resting in mid-air.
+func _draw_her_shoulder_arm(c: PackedByteArray, t: Tones) -> void:
+	# Up over his shoulder, hand on his far shoulder — his jumper reaches
+	# about x = 42, so the hand lands ON him rather than in mid-air.
+	_slope(c, HER_X + 5, 37, HIS_X + 4, 44, 3, t.wrap)
+	_rect(c, HIS_X + 4, 44, HIS_X + 7, 46, t.skin)
+	# And her hand at his far waist, the other end of the arm drawn below.
+	_rect(c, HIS_X + 5, 29, HIS_X + 7, 31, t.skin_shade)
+
+
+## Her other arm, round his waist. Drawn before him — see `_draw`.
+func _draw_her_waist_arm(c: PackedByteArray, t: Tones) -> void:
+	_slope(c, HER_X + 4, 29, HIS_X + 6, 30, 2, t.wrap_shade)
 
 
 # ------------------------------------------------------------- primitives
@@ -369,13 +398,16 @@ func _slope(c: PackedByteArray, x0: int, y0: int, x1: int, y1: int,
 		_rect(c, x, y, x, y + thickness - 1, v)
 
 
+## Corners take whatever is beyond them rather than being cleared — see
+## PixelFigure._round_rect for the holes the clearing version left in the back
+## of her head.
 func _round_rect(c: PackedByteArray, x0: int, y0: int, x1: int, y1: int,
 		v: int) -> void:
 	_rect(c, x0, y0, x1, y1, v)
 	_px(c, x0, y0, _sample(c, x0, y0 - 1))
 	_px(c, x1, y0, _sample(c, x1, y0 - 1))
-	_px(c, x0, y1, EMPTY)
-	_px(c, x1, y1, EMPTY)
+	_px(c, x0, y1, _sample(c, x0, y1 + 1))
+	_px(c, x1, y1, _sample(c, x1, y1 + 1))
 
 
 func _shade_right(c: PackedByteArray, from_x: int, shade_of: Dictionary) -> void:

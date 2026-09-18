@@ -18,11 +18,28 @@ extends RefCounted
 ## the date, the coordinates, the description and the people in it, and its
 ## coordinates survive even when the image's own EXIF has been stripped. Those
 ## are exactly the fields the editor would otherwise make the author type.
-## Sidecar naming has changed more than once, so `_sidecar_for` tries several
-## shapes.
+## Sidecar naming has changed more than once, so the matching happens in two
+## passes — exact names, then truncated ones. See `_scan`.
 
 const IMAGE_EXTENSIONS := ["jpg", "jpeg", "png", "webp"]
-const STAGING_PATH := "user://tmp_photo_archive.zip"
+
+## The fewest characters a sidecar name may share with a photograph's before
+## it can be treated as that photograph's truncated sidecar. The real
+## protection is that the sidecar must not already belong to another
+## photograph in the archive — see `_truncated_sidecar_for` — and this is only
+## a floor against absurd matches.
+const MIN_TRUNCATED_PREFIX := 6
+
+## Where an archive handed over as bytes is written before it is read. Unique
+## per archive: a single fixed path was truncated by the NEXT archive while the
+## previous one's ZIPReader was still open on it, so after opening a second zip
+## that turned out to have no photographs in it, the first archive — still the
+## active one — read every image out of the second zip's bytes.
+const STAGING_PREFIX := "user://tmp_photo_archive"
+
+
+static func _staging_path() -> String:
+	return "%s_%d.zip" % [STAGING_PREFIX, Time.get_ticks_usec()]
 
 ## Takeout writes 0,0 for a photograph with no location. It is also a real
 ## place in the Gulf of Guinea, but no photograph of anyone's life is there.
@@ -56,6 +73,9 @@ var _zip: ZIPReader = null
 var _entries: Array[Entry] = []
 var _skipped := 0
 var _source := ""
+## Set when WE wrote the file being read, so closing can delete it. A zip the
+## author picked off their own disk is left alone.
+var _staged := ""
 
 
 func is_ok() -> bool:
@@ -103,6 +123,9 @@ func close() -> void:
 	if _zip != null:
 		_zip.close()
 		_zip = null
+	if not _staged.is_empty():
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(_staged))
+		_staged = ""
 
 
 # ------------------------------------------------------------------ opening
@@ -113,7 +136,8 @@ static func from_bytes(bytes: PackedByteArray) -> PhotoArchive:
 		archive.problems.append("that file is empty")
 		return archive
 
-	var f := FileAccess.open(STAGING_PATH, FileAccess.WRITE)
+	var staged := _staging_path()
+	var f := FileAccess.open(staged, FileAccess.WRITE)
 	if f == null:
 		archive.problems.append("cannot stage the archive (error %d)"
 			% FileAccess.get_open_error())
@@ -121,7 +145,10 @@ static func from_bytes(bytes: PackedByteArray) -> PhotoArchive:
 	f.store_buffer(bytes)
 	f.close()
 
-	return from_path(STAGING_PATH)
+	var opened := from_path(staged)
+	# Ours to delete, unlike a zip the author picked off their own disk.
+	opened._staged = staged
+	return opened
 
 
 static func from_path(path: String) -> PhotoArchive:
@@ -169,25 +196,47 @@ func _scan() -> void:
 	images.sort_custom(func(a: Entry, b: Entry) -> bool:
 		return a.name.naturalnocasecmp_to(b.name) < 0)
 
+	# Two passes, and the order is the whole point.
+	#
+	# Pass one gives every photograph the sidecar that is named after it
+	# exactly. Pass two lets a photograph with no such sidecar claim one whose
+	# name is a PREFIX of its own — which is how Takeout writes a sidecar for a
+	# name too long for its filename limit — but only from the sidecars pass
+	# one did not claim, and only one photograph per sidecar.
+	#
+	# Done in one pass it was a data-corruption bug: `beach2.jpg` with no
+	# sidecar of its own matched `beach.jpg.json` on the prefix, so the lat,
+	# lon and date the player is scored against for one photograph were
+	# silently copied onto another.
+	var taken := {}
+	var unmatched: Array[Entry] = []
+
 	for entry in images:
-		var sidecar_path := _sidecar_for(entry.path, sidecars)
-		if not sidecar_path.is_empty():
-			_apply_sidecar(entry, sidecar_path)
+		var exact := _exact_sidecar_for(entry.path, sidecars)
+		if exact.is_empty():
+			unmatched.append(entry)
+			continue
+		taken[exact] = true
+		_apply_sidecar(entry, exact)
+
+	for entry in unmatched:
+		var truncated := _truncated_sidecar_for(entry.path, sidecars, taken)
+		if truncated.is_empty():
+			continue
+		taken[truncated] = true
+		_apply_sidecar(entry, truncated)
 
 	_entries = images
 	CCLog.info("archive", "%d photographs, %d with metadata, %d other files"
 		% [_entries.size(), with_sidecar_count(), _skipped])
 
 
-## Find the sidecar for one photograph.
-##
-## Takeout has used at least these shapes, and truncates long names:
+## The sidecar named after this photograph exactly. Takeout has used at least
+## these shapes:
 ##   IMG_0001.JPG.json
 ##   IMG_0001.JPG.supplemental-metadata.json
 ##   IMG_0001.json
-## So: the exact forms first, then any sidecar in the same directory whose
-## name starts with the photograph's (which catches the truncated ones).
-func _sidecar_for(image_path: String, sidecars: Dictionary) -> String:
+func _exact_sidecar_for(image_path: String, sidecars: Dictionary) -> String:
 	var directory := image_path.get_base_dir()
 	var base := image_path.get_file()
 	var stem := base.get_basename()
@@ -203,18 +252,33 @@ func _sidecar_for(image_path: String, sidecars: Dictionary) -> String:
 			else "%s/%s" % [directory, candidate]
 		if sidecars.has(full):
 			return full
+	return ""
 
-	# Truncated names: Takeout cuts the sidecar's filename at a fixed length,
-	# so match on a prefix instead. Shortest match wins, since that is the
-	# closest to the photograph's own name.
+
+## A sidecar whose name is a PREFIX of this photograph's, which is how Takeout
+## writes one for a name too long for its filename limit. `taken` holds the
+## sidecars already claimed by a photograph they are named after exactly, and
+## those are never candidates here: a sidecar that belongs to a photograph in
+## this same archive is not a truncation of a different one.
+##
+## Shortest match wins, since that is the closest to the photograph's own name.
+func _truncated_sidecar_for(image_path: String, sidecars: Dictionary,
+		taken: Dictionary) -> String:
+	var directory := image_path.get_base_dir()
+	var base := image_path.get_file()
+	var stem := base.get_basename()
+
 	var best := ""
 	for path in sidecars.keys():
 		var sidecar_path := String(path)
+		if taken.has(sidecar_path):
+			continue
 		if sidecar_path.get_base_dir() != directory:
 			continue
 		var sidecar_name := sidecar_path.get_file()
 		var prefix := sidecar_name.get_basename()
-		if prefix.length() < 6:
+		# A handful of characters in common is a coincidence, not a cut name.
+		if prefix.length() < MIN_TRUNCATED_PREFIX:
 			continue
 		if base.begins_with(prefix) or stem.begins_with(prefix.get_basename()):
 			if best.is_empty() or sidecar_name.length() < best.get_file().length():

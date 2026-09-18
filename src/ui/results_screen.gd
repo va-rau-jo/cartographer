@@ -229,6 +229,11 @@ func _said_line(b: Dictionary) -> String:
 		var years := int(b.get("year_error", 0))
 		if years == 0:
 			parts.append("and the right year")
+		elif bool(b.get("date_exact", false)):
+			# Full date credit with a year error: a decade-precision
+			# photograph, where anywhere inside the decade is right. Saying
+			# "4 years out" here contradicts the score on the same row.
+			parts.append("and the right decade")
 		elif years < 9000:
 			parts.append("and %s" % _years_out(years))
 		else:

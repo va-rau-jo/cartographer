@@ -106,6 +106,7 @@ func _on_body_exited(body: Node3D, index: int) -> void:
 	_nearby = -1
 	if GameState.phase == GameState.Phase.APPROACH:
 		GameState.phase = GameState.Phase.GALLERY_IDLE
+	EventBus.photo_left.emit(index)
 
 
 # ----------------------------------------------------------------- round
@@ -177,7 +178,12 @@ func purchase_hint() -> String:
 
 	var taken: Array = GameState.hints_taken[_active]
 	var next_tier := taken.size() + 1
-	if next_tier > 3:
+	# The album decides how many hints there are, by how many costs it lists.
+	# A hardcoded 3 here meant an album with two costs still granted a third
+	# hint — and hint_cost returns 0.0 past the end of the list, so the tier
+	# that names the answer outright was free, and the HUD advertised it as
+	# costing nothing.
+	if next_tier > hint_tier_count():
 		return ""
 
 	taken.append(next_tier)
@@ -286,7 +292,18 @@ func cancel_guessing() -> void:
 	player.end_examine()
 	_active = -1
 	GameState.current_photo_index = -1
-	GameState.phase = GameState.Phase.GALLERY_IDLE
+
+	# Back to APPROACH, not to idle, when she is still standing in front of the
+	# photograph — which she always is, because backing out of the guess panel
+	# does not move her. Dropping to GALLERY_IDLE left E dead and the prompt
+	# gone until she walked out of the trigger volume and back in again:
+	# Area3D's body_entered is an edge event and will not fire again while she
+	# is inside it.
+	if _nearby >= 0 and not GameState.is_played(_nearby):
+		GameState.phase = GameState.Phase.APPROACH
+		EventBus.photo_approached.emit(_nearby)
+	else:
+		GameState.phase = GameState.Phase.GALLERY_IDLE
 
 
 # ------------------------------------------------------------- accessors
@@ -319,10 +336,17 @@ func can_unblur() -> bool:
 	return GameState.unblur_tiers[_active] < AlbumSchema.BLUR_TIER_COUNT - 1
 
 
+## How many hints this album offers, which is how many costs it lists. Kept to
+## at most the three lines an author can write, because a fourth cost has no
+## line behind it.
+func hint_tier_count() -> int:
+	return clampi(_scoring().hint_costs.size(), 0, 3)
+
+
 func can_hint() -> bool:
 	if not _in_range(_active):
 		return false
-	return (GameState.hints_taken[_active] as Array).size() < 3
+	return (GameState.hints_taken[_active] as Array).size() < hint_tier_count()
 
 
 func next_hint_cost() -> float:

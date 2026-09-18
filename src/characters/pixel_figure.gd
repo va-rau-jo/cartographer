@@ -123,6 +123,17 @@ class Palette extends RefCounted:
 var palette := Palette.new()
 ## Which of the two bodies is drawn.
 var form: Form = Form.WOMAN
+## Turn to the viewport's camera every frame without being driven by anything.
+##
+## The player's figure is driven by the controller and the embrace by the
+## ending, but a figure that is simply STOOD somewhere — the one waiting at the
+## end of the hall, the one beside the bed — had nothing calling
+## update_view_for_camera at all. The header above says that turn is not
+## optional, and they proved it: the one in the hospital rendered as a sliver
+## about seventy degrees off the lens, and the one down the hall was rotated
+## 180° to face back up it, which showed the BACK of the slab — the front
+## drawing mirrored, with the light-from-the-left shading on the wrong side.
+var auto_face_camera := false
 ## Where the figure is looking, in its own local space. Movement sets this.
 var view: View = View.FRONT
 
@@ -205,6 +216,14 @@ func set_view(new_view: View, mirrored: bool) -> void:
 		# One drawn profile serves both directions: mirror it rather than
 		# drawing a fourth sprite.
 		mi.scale = Vector3(-1.0 if mirrored else 1.0, 1.0, 1.0)
+
+
+func _process(_delta: float) -> void:
+	if not auto_face_camera:
+		return
+	var cam := get_viewport().get_camera_3d() if is_inside_tree() else null
+	if cam != null:
+		update_view_for_camera(cam.global_position)
 
 
 ## Walk animation: a bob and a slight lean, not articulated limbs. An extruded
@@ -355,15 +374,23 @@ func _ground_contact(c: PackedByteArray) -> void:
 			_px(c, x, 0, EDGE)
 
 
-## Rectangle with its four corner pixels removed — the standard pixel-art way
-## to round a small shape without antialiasing it.
+## Rectangle with its four corner pixels rounded off — the standard pixel-art
+## way to round a small shape without antialiasing it.
+##
+## Each corner takes whatever is just beyond it rather than being cleared: on
+## the silhouette that is nothing, which rounds the corner, and inside other
+## geometry it is that geometry, which leaves it alone. The top two corners
+## used to be set to EMPTY unconditionally, and since `_extrude` fills the
+## whole depth, a shape drawn over existing geometry — her bun over her hair,
+## every time — punched two 2.9 cm holes clean through the back of her head
+## that the room showed through from behind. Which is the normal walking view.
 func _round_rect(c: PackedByteArray, x0: int, y0: int, x1: int, y1: int,
 		v: int) -> void:
 	_rect(c, x0, y0, x1, y1, v)
 	_px(c, x0, y0, _sample(c, x0, y0 - 1))
 	_px(c, x1, y0, _sample(c, x1, y0 - 1))
-	_px(c, x0, y1, EMPTY)
-	_px(c, x1, y1, EMPTY)
+	_px(c, x0, y1, _sample(c, x0, y1 + 1))
+	_px(c, x1, y1, _sample(c, x1, y1 + 1))
 
 
 # ------------------------------------------------------------------- views

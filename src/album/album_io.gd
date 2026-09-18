@@ -156,9 +156,16 @@ static func suggested_filename(album: AlbumSchema.Album) -> String:
 	if base.is_empty():
 		base = "album"
 	# Keep it safe for every filesystem and for an email attachment.
+	#
+	# NOT `is_valid_identifier()` per character: that applies the whole-
+	# identifier rule, under which a lone digit is invalid — so "Trip 2019"
+	# came out as "Trip_____.ccalbum". Every existing test title happened to
+	# have no digits in it.
 	var safe := ""
 	for ch in base:
-		safe += ch if ch.is_valid_identifier() or ch in " -_" else "_"
+		var keep := (ch >= "a" and ch <= "z") or (ch >= "A" and ch <= "Z") \
+			or (ch >= "0" and ch <= "9") or ch in " -_"
+		safe += ch if keep else "_"
 	safe = safe.strip_edges().replace(" ", "_")
 	return "%s.%s" % [safe, ALBUM_EXTENSION]
 
@@ -208,6 +215,14 @@ static func _check_assets_present(result: LoadedAlbum) -> void:
 				result.problems.append(AlbumValidator.Problem.new(
 					AlbumValidator.Severity.ERROR, "%s.files.blurTiers[%d]" % [base, t],
 					"archive is missing %s" % bp, p.id))
+		# The thumbnail too. It was the one asset nothing checked, so an album
+		# missing it loaded clean and then showed a blank tile in the preview
+		# and in the editor's list for every photograph.
+		if not p.thumb_path.is_empty() and not result.has_asset(p.thumb_path):
+			result.problems.append(AlbumValidator.Problem.new(
+				AlbumValidator.Severity.WARNING, base + ".files.thumb",
+				"archive is missing %s, so it has no preview tile"
+					% p.thumb_path, p.id))
 
 
 ## Migrate a manifest dict in place. Returns a Problem if the version cannot be

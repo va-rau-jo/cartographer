@@ -100,13 +100,38 @@ func _test_thumbnails(t: TestFramework, bytes: PackedByteArray) -> void:
 
 	# And from a loaded album, which is what the preview screen uses.
 	t.ok(AlbumService.load_album_bytes(bytes), "the fixture album loads")
-	var hung := AlbumService.album().hung_photos()
-	var from_album := AlbumService.thumb_texture(hung[0].id)
+	var hung: Array = AlbumService.album().hung_photos()
+	var from_album: ImageTexture = AlbumService.thumb_texture(hung[0].id)
 	t.ok(from_album != null, "a loaded album can produce a thumbnail")
 	t.ok(AlbumService.thumb_texture(hung[0].id) == from_album,
 		"and caches it too")
 	t.ok(AlbumService.thumb_texture("no_such_photo") == null,
 		"a photograph that is not there has no thumbnail")
+
+	# A tier that would not decode must never be served by a SHARPER one.
+	#
+	# The decode used to append only its successes, and tier_texture indexes
+	# the result BY TIER — so one corrupt tier 1 shifted the whole ladder down
+	# and handed her tier 2's clearer image at tier 1's price. Now the slot
+	# holds a null and the lookup walks DOWN to the nearest blurrier tier that
+	# did decode.
+	var ladder: Array = AlbumService._tier_textures[hung[0].id]
+	t.eq(ladder.size(), AlbumSchema.BLUR_TIER_COUNT,
+		"there is one slot per tier, decoded or not")
+	var tier0 := AlbumService.tier_texture(hung[0].id, 0)
+	var tier2 := AlbumService.tier_texture(hung[0].id, 2)
+	ladder[1] = null
+	t.ok(AlbumService.tier_texture(hung[0].id, 1) == tier0,
+		"a tier that failed to decode falls back to the blurrier one")
+	t.ok(AlbumService.tier_texture(hung[0].id, 1) != tier2,
+		"and never to a sharper one")
+	t.ok(AlbumService.tier_texture(hung[0].id, 2) == tier2,
+		"while the tiers that did decode are unaffected")
+	# Put it back, because the screen below draws from this.
+	AlbumService.unload()
+	AlbumService.load_album_bytes(bytes)
+	hung = AlbumService.album().hung_photos()
+	from_album = AlbumService.thumb_texture(hung[0].id)
 
 	# The fog is a different, much smaller image than the thumbnail — that
 	# difference is the whole point of the preview screen's default.

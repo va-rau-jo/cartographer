@@ -51,8 +51,12 @@ void fragment() {
 	float fy = 1.0 - smoothstep(1.0 - edge_softness, 1.0,
 		abs(v_local.y) / max(half_height, 0.001));
 
-	// Dimmer the further the beam has come from the window.
-	float travelled = clamp(v_local.z / max(span, 0.001), 0.0, 1.0);
+	// Dimmer the further the beam has come from the window. The box is CENTRED
+	// on its node, so v_local.z runs -span/2..+span/2 — dividing by the full
+	// span gave 0 for the whole near half and only ever reached 0.5 at the far
+	// end, so with travel_fade 0.8 the beam ended at 0.6 brightness instead of
+	// 0.2 and its first half had no falloff at all.
+	float travelled = clamp(v_local.z / max(span, 0.001) + 0.5, 0.0, 1.0);
 	float ft = mix(1.0, 1.0 - travelled, travel_fade);
 
 	// Fade where the slab meets solid geometry, so it does not draw a visible
