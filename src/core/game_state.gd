@@ -38,6 +38,20 @@ var hints_taken: Array = []
 ## Accumulated across the ten rounds; drives how dim the hall gets (plan §8.2).
 var total_hints_taken: int = 0
 
+## Set by the album preview screen when the author chose "Edit this album",
+## and consumed by the editor on entry. A scene change loses everything else,
+## so a one-shot flag here is the whole handoff — the album itself is already
+## in AlbumService.
+var edit_loaded_album: bool = false
+
+
+## Read the flag and clear it, so entering the editor from the menu afterwards
+## starts empty rather than inheriting whatever was last loaded.
+func take_edit_request() -> bool:
+	var wanted := edit_loaded_album
+	edit_loaded_album = false
+	return wanted
+
 
 func reset_for_album(photo_count: int) -> void:
 	current_photo_index = -1

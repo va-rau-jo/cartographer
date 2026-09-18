@@ -89,7 +89,35 @@ func _run() -> void:
 		await get_tree().process_frame
 	_save(window, "40_editor")
 
+	# Scrolled down to the date fields, which is where the interesting bug was:
+	# they were wired correctly and unreachable, because the row they sat in was
+	# wider than the column and there is no horizontal scrollbar. A picture is
+	# the only way to be sure they are on screen.
+	var scroll := screen._detail.get_parent() as ScrollContainer
+	if scroll != null:
+		# Put the "When" block at the top of the visible area.
+		scroll.scroll_vertical = int(maxf(0.0,
+			screen._year.get_parent().position.y - 120.0))
+		for _i in 4:
+			await get_tree().process_frame
+		_save(window, "41_editor_dates")
+
+	# And an undated photograph, which is what a scan arrives as: the note
+	# above the boxes has to say so.
+	screen.session.slot_at(2).photo.truth.date.year = 0
+	screen.session.slot_at(2).photo.truth.date.month = 0
+	screen._select(2)
+	if scroll != null:
+		scroll.scroll_vertical = int(maxf(0.0,
+			screen._year.get_parent().position.y - 120.0))
+	for _i in 4:
+		await get_tree().process_frame
+	_save(window, "42_editor_undated")
 	print("")
+	print("date note      %s" % screen._date_note.text)
+	print("date row min   %d px" % screen._year.get_parent()
+		.get_combined_minimum_size().x)
+	print("detail width   %d px" % screen._detail.size.x)
 	print("slots          %d of %d" % [screen.session.slot_count(),
 		EditorSession.MAX_PHOTOS])
 	print("sources        %d" % screen.session.source_count())

@@ -76,7 +76,7 @@ func _build() -> void:
 
 	column.add_child(_make_button("Walk the gallery (no album)", _enter_gallery))
 
-	column.add_child(_make_button("Choose how she looks", _on_customize_pressed))
+	column.add_child(_make_button("The two of you", _on_customize_pressed))
 
 	if not OS.has_feature("web"):
 		column.add_child(_make_button("Quit", _on_quit_pressed))
@@ -126,13 +126,14 @@ func _on_load_pressed() -> void:
 	Platform.pick_album_file()
 
 
-## The real start: the hospital room, which hands over to the gallery itself
-## once she goes in. "Walk the gallery" below skips it.
+## Begin shows the album's own page first. It is one click more, and it is
+## where "is this the right album" gets answered — pressing Begin and landing
+## in a hospital room with no idea which ten photographs are coming is worse.
 func _on_play_pressed() -> void:
-	AlbumService.reset_session()
-	var err := get_tree().change_scene_to_file("res://scenes/hospital/hospital.tscn")
+	var err := get_tree().change_scene_to_file(
+		"res://scenes/menu/album_preview.tscn")
 	if err != OK:
-		_set_status("[color=#e08080]Could not open the opening scene (error %d).[/color]"
+		_set_status("[color=#e08080]Could not open the album (error %d).[/color]"
 			% err)
 
 
@@ -153,6 +154,7 @@ func _on_editor_pressed() -> void:
 			% err)
 
 
+## Who you walk as, what the two of them are called, and how they look.
 func _on_customize_pressed() -> void:
 	var err := get_tree().change_scene_to_file("res://scenes/menu/customize.tscn")
 	if err != OK:
@@ -185,23 +187,20 @@ func _on_pick_cancelled() -> void:
 	_set_status("")
 
 
+## A loaded album goes straight to the preview screen: the album's own page,
+## where you can see what it is and choose to play it or to edit it. The menu
+## does not try to summarise it in a status line any more.
 func _on_album_loaded(album: RefCounted) -> void:
 	var a: AlbumSchema.Album = album
-	var hung := a.hung_photos()
-
-	var lines: PackedStringArray = PackedStringArray()
-	lines.append("[b]%s[/b] — %d photographs" % [a.title, hung.size()])
-	if not a.author_note.is_empty():
-		lines.append("[i]%s[/i]" % a.author_note)
-
-	var warnings := AlbumValidator.count_of(
-		AlbumService.loaded.problems, AlbumValidator.Severity.WARNING)
-	if warnings > 0:
-		lines.append("[color=#d8c070]%d warning(s) — playable, but worth a look.[/color]"
-			% warnings)
-
-	_set_status("\n".join(lines))
+	_set_status("[b]%s[/b] — %d photographs"
+		% [a.title, a.hung_photos().size()])
 	_refresh()
+
+	var err := get_tree().change_scene_to_file(
+		"res://scenes/menu/album_preview.tscn")
+	if err != OK:
+		_set_status("[color=#e08080]Could not open the album (error %d).[/color]"
+			% err)
 
 
 func _on_album_load_failed(problems: Array) -> void:

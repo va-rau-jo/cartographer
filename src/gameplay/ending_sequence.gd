@@ -50,6 +50,11 @@ const CAM_EASE := 2.2
 var player: PlayerController = null
 var companion: PixelFigure = null
 var album: AlbumSchema.Album = null
+## Who the two of them are. The embrace is a drawn pose of a specific pair —
+## her on the left, him on the right — so it asks the cast for the wife and the
+## husband by name rather than for "the player" and "the companion". Whoever
+## walked the hall, the hug looks the same.
+var cast: CastProfile = null
 
 var _stage: Stage = Stage.IDLE
 var _clock := 0.0
@@ -63,10 +68,12 @@ var _camera: Camera3D = null
 var _said_closing := false
 
 
-func setup(p: PlayerController, c: PixelFigure, a: AlbumSchema.Album) -> void:
+func setup(p: PlayerController, c: PixelFigure, a: AlbumSchema.Album,
+		who: CastProfile = null) -> void:
 	player = p
 	companion = c
 	album = a
+	cast = who if who != null else CastProfile.load_saved()
 
 
 func _ready() -> void:
@@ -213,9 +220,18 @@ func _enter_embrace() -> void:
 	mid.y = minf(player.global_position.y, companion.global_position.y)
 	_embrace.global_position = mid
 
-	var her_palette: PixelFigure.Palette = player.figure.palette \
-		if player.figure != null else PixelFigure.Palette.new()
-	_embrace.build(her_palette, companion.palette)
+	# Her colours and his, from the cast — NOT from whichever figure the player
+	# happens to be walking as. With the husband as the player those two are
+	# swapped, and the drawn pose would have put her hair on his body.
+	var her_palette := PixelFigure.Palette.new()
+	var his_palette := PixelFigure.Palette.husband()
+	if cast != null:
+		her_palette = cast.wife.to_palette()
+		his_palette = cast.husband.to_palette()
+	elif player.figure != null:
+		her_palette = player.figure.palette
+		his_palette = companion.palette
+	_embrace.build(her_palette, his_palette)
 
 	if player.figure != null:
 		player.figure.visible = false

@@ -46,8 +46,11 @@ var _heading: Label = null
 ## Place label -> lat/lon, and the display order. Shuffled once per session so
 ## the list is not a giveaway of the hang order.
 var _places: Array[Dictionary] = []
-var _min_year := 1900
-var _max_year := 2026
+## Only used before setup() runs — the album's own dial always wins. Kept in
+## step with AlbumSchema's defaults so a gallery walked with no album loaded
+## shows the same dial as one with an undated album.
+var _min_year := AlbumSchema.DIAL_DEFAULT_MIN
+var _max_year := AlbumSchema.current_year()
 
 
 func setup(controller: RoundController, a: AlbumSchema.Album,
@@ -287,6 +290,7 @@ func _on_round_started(_index: int) -> void:
 
 func _populate() -> void:
 	_place_list.clear()
+	_configure_dial()
 
 	if _places.is_empty():
 		# Walking the gallery with no album loaded: the pictures are
@@ -301,6 +305,13 @@ func _populate() -> void:
 	for place in _places:
 		_place_list.add_item(String(place["label"]))
 
+
+## The two sliders' travel, from the dial's ends.
+##
+## This used to live at the end of _populate, after its early return — so a
+## gallery walked with no album never configured the sliders at all and the
+## decade slider kept Range's default 0..100, which let the dial read 2900.
+func _configure_dial() -> void:
 	var decades := (_max_year - _min_year) / 10
 	_decade.min_value = 0
 	_decade.max_value = maxi(1, decades)
@@ -357,7 +368,11 @@ func _on_date_changed(_value: float) -> void:
 
 
 func _guess_year() -> int:
-	return _min_year + int(_decade.value) * 10 + int(_year.value)
+	# Clamped to the dial's own ends: the decade slider moves in tens and the
+	# year slider adds nine, so the last notch of a dial ending in 2026 could
+	# otherwise be answered as 2029.
+	return clampi(_min_year + int(_decade.value) * 10 + int(_year.value),
+		_min_year, _max_year)
 
 
 func _refresh_date_label() -> void:

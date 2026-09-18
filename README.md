@@ -75,10 +75,25 @@ godot --path .
 
 **Begin** plays the whole arc, starting in the hospital room. **Walk the
 gallery (no album)** skips straight to the hall with placeholder pictures.
-**Choose how she looks** sets the player figure's five colours — skin, hair,
-dress, cardigan, shoes — with the real figure turning beside the swatches
-under the hall's own light. Saved to `user://profile.json`, so it is the
-player's own preference and does not travel inside an album.
+
+**The two of you** is the cast screen, and it decides three things:
+
+* **Who you walk as.** Either of them can hold the map. The other one is the
+  one lying in the bed at the start and waiting at the end of the hall — so
+  choosing the husband makes the wife the dying one, and the whole game plays
+  from his side. Nothing else about the fiction changes.
+* **What they are called.** Chelsea and Victor by default. The names are used
+  for a new album's "his name" and "her name" fields, and either is still the
+  author's to change per album.
+* **How they look.** Five colours each — skin, hair, dress or trousers,
+  cardigan or jumper, shoes — with the real figure turning beside the swatches
+  under the hall's own light. The two builds are drawn separately: hers has a
+  skirt and a bun, his has trousers and a short crop, and they are the same
+  height because the hug at the ending is one drawn pose.
+
+Saved to `user://cast.json`, so it is the player's own preference and does not
+travel inside an album. A `user://profile.json` from an earlier build — which
+knew only one figure — is adopted once, as the wife.
 
 |          |                                                                                 |
 | -------- | ------------------------------------------------------------------------------- |

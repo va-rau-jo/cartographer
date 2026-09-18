@@ -12,6 +12,8 @@ var loaded: AlbumIO.LoadedAlbum = null
 var _tier_textures: Dictionary = {}
 ## photo id -> ImageTexture
 var _full_textures: Dictionary = {}
+## photo id -> ImageTexture, decoded on demand for the preview screens
+var _thumb_textures: Dictionary = {}
 
 
 func has_album() -> bool:
@@ -57,6 +59,7 @@ func unload() -> void:
 	loaded = null
 	_tier_textures.clear()
 	_full_textures.clear()
+	_thumb_textures.clear()
 
 
 ## Texture for a photo at a blur tier. Tier is clamped into range, so callers
@@ -82,6 +85,23 @@ func full_texture(photo_id: String) -> ImageTexture:
 		"%s/full" % photo_id)
 	if tex != null:
 		_full_textures[photo_id] = tex
+	return tex
+
+
+## The little one, for the album preview and the editor's lists. Decoded on
+## first ask and kept: ten thumbnails are about 40 KB of texture between them.
+func thumb_texture(photo_id: String) -> ImageTexture:
+	if _thumb_textures.has(photo_id):
+		return _thumb_textures[photo_id]
+
+	var photo := album().photo_by_id(photo_id) if album() != null else null
+	if photo == null or loaded == null or photo.thumb_path.is_empty():
+		return null
+
+	var tex := _decode_texture(loaded.read_asset(photo.thumb_path),
+		"%s/thumb" % photo_id)
+	if tex != null:
+		_thumb_textures[photo_id] = tex
 	return tex
 
 

@@ -32,6 +32,9 @@ const SUITES := [
 	"res://tests/test_editor.gd",
 	"res://tests/test_archive.gd",
 	"res://tests/test_figure.gd",
+	"res://tests/test_preview.gd",
+	"res://tests/test_cast.gd",
+	"res://tests/test_editor_screen.gd",
 ]
 
 

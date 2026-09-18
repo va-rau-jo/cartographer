@@ -11,6 +11,7 @@ static func run() -> TestFramework:
 	_test_pack_and_load(t)
 	_test_hint_fallback(t)
 	_test_guess_year_range(t)
+	_test_dial_defaults(t)
 
 	return t
 
@@ -602,3 +603,78 @@ static func _test_guess_year_range(t: TestFramework) -> void:
 	t.eq(back.guess_year_max, 2015, "and its end")
 	var bare := AlbumSchema.Album.from_dict({"schemaVersion": 1})
 	t.eq(bare.guess_year_min, 0, "a manifest without them defaults to auto")
+
+## The dial's ends when nobody has set them, which is the common case — and the
+## specific failure that prompted this: a zip of scanned prints carries the day
+## each print was SCANNED, so ten photographs of a 1970s holiday arrive stamped
+## with this year and used to hand her a dial running to 2040, three quarters
+## of it in the future.
+static func _test_dial_defaults(t: TestFramework) -> void:
+	var this_year := AlbumSchema.current_year()
+	t.gt(float(this_year), 2024.0, "the calendar knows what year it is (%d)"
+		% this_year)
+
+	# Nothing dated at all: their lifetime, ending now.
+	var undated := AlbumSchema.Album.create_empty("Undated")
+	for i in 3:
+		var blank := AlbumSchema.Photo.new()
+		blank.id = "p_%d" % i
+		undated.photos.append(blank)
+	var span := undated.guess_year_range()
+	t.lt(float(span.x), 1990.0, "an undated album starts early enough (%d)"
+		% span.x)
+	t.lt(float(span.y), float(this_year) + 1.0,
+		"and does not end in the future (%d)" % span.y)
+	t.gt(float(span.y), float(this_year) - 12.0,
+		"but does come up to about now")
+
+	# Every photograph stamped with this year — the scanned-folder case.
+	var scans := AlbumSchema.Album.create_empty("Scans")
+	for i in 4:
+		var photo := AlbumSchema.Photo.new()
+		photo.id = "s_%d" % i
+		photo.truth.date.year = this_year
+		scans.photos.append(photo)
+	var scanned := scans.guess_year_range()
+	t.lt(float(scanned.y), float(this_year) + 1.0,
+		"a folder of scans does not push the dial into the future (%d)"
+			% scanned.y)
+	t.gt(float(scanned.y - scanned.x), float(AlbumSchema.DIAL_MIN_SPAN) - 1.0,
+		"and it is still a dial you could lose on (%d..%d)"
+			% [scanned.x, scanned.y])
+
+	# One recent photograph among old ones must not drag the end forward
+	# either, but it must still be reachable.
+	var mixed := AlbumSchema.Album.create_empty("Mixed")
+	for year in [1961, 1974, this_year]:
+		var photo := AlbumSchema.Photo.new()
+		photo.id = "m_%d" % year
+		photo.truth.date.year = year
+		mixed.photos.append(photo)
+	var either := mixed.guess_year_range()
+	t.lt(float(either.y), float(this_year) + 1.0,
+		"the end stops at this year (%d)" % either.y)
+	t.ok(either.y >= this_year, "and still reaches the newest photograph")
+	t.lt(float(either.x), 1961.0, "while starting before the oldest")
+
+	# An author who names an end means it, even when the other end is worked
+	# out and the span comes out narrow.
+	var mine := AlbumSchema.Album.create_empty("Mine")
+	var one := AlbumSchema.Photo.new()
+	one.id = "o_1"
+	one.truth.date.year = this_year
+	mine.photos.append(one)
+	mine.guess_year_min = this_year - 4
+	var narrow := mine.guess_year_range()
+	t.eq(narrow.x, this_year - 4, "my own start is left exactly where I put it")
+	t.gt(float(narrow.y - narrow.x), 3.0, "and the other end is widened instead")
+
+	# Both ends mine: obeyed as given, however odd, short of nonsense.
+	mine.guess_year_min = 1990
+	mine.guess_year_max = 1995
+	var both := mine.guess_year_range()
+	t.eq(both.x, 1990, "both ends of my own dial are mine")
+	t.eq(both.y, 1995, "even a five-year one")
+
+	t.eq(AlbumSchema.DIAL_DEFAULT_MIN, 1980,
+		"and the default start is the one the brief asked for")

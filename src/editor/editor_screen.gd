@@ -58,6 +58,8 @@ var _approved: CheckBox = null
 var _private: TextEdit = null
 var _map: MapWidget = null
 var _source_note: Label = null
+var _preview: TextureRect = null
+var _date_note: Label = null
 
 var _choose_folder: Button = null
 var _choose_archive: Button = null
@@ -75,6 +77,34 @@ func _ready() -> void:
 
 	Platform.files_picked.connect(_on_files_picked)
 	Platform.pick_cancelled.connect(_on_pick_cancelled)
+
+	# Arrived from the album preview's "Edit this album": the album is already
+	# loaded in AlbumService, and the flag is the only thing a scene change
+	# could carry across.
+	if GameState.take_edit_request() and AlbumService.has_album():
+		var error := session.adopt(AlbumService.loaded)
+		if error.is_empty():
+			_read_album_fields()
+			_select(0 if session.slot_count() > 0 else -1)
+			_set_status("Editing '%s'. Saving writes a new file; the one you"
+				% session.album.title
+				+ " opened is left alone.")
+			return
+		_set_status(error)
+
+	# A new album starts with a dial that spans their lifetime rather than two
+	# zeroes: 1980 to this year. The author can move either end, or put a zero
+	# back to have it worked out from the photographs.
+	session.album.guess_year_min = AlbumSchema.DIAL_DEFAULT_MIN
+	session.album.guess_year_max = AlbumSchema.current_year()
+
+	# And with the two of them already named, from whoever this machine has
+	# been set up as. Both fields are still the author's to change: the cast is
+	# who plays, and these two are who the album says they are.
+	var cast := CastProfile.load_saved()
+	session.album.curator_voice_name = cast.companion_name()
+	session.album.curator_player_name = cast.player_name()
+	_read_album_fields()
 
 	_refresh()
 	_set_status("Choose a folder of photographs to begin.")
@@ -165,18 +195,23 @@ func _build_header() -> Control:
 		session.album.closing_line = t)
 	right.add_child(_closing_line)
 
-	right.add_child(_small("The calendar dial she guesses with. Leave both at"
-		+ " zero to work it out from the photographs."))
+	right.add_child(_small("The calendar dial she guesses with — the two ends"
+		+ " of it. Zero at either end means work that end out from the"
+		+ " photographs themselves."))
 	var dial := HBoxContainer.new()
 	dial.add_theme_constant_override("separation", 8)
 	dial.add_child(_fixed_small("from", 40))
-	_guess_from = _spin(0.0, 2100.0, 1.0)
+	# Bounded by photography at one end and today at the other. The old boxes
+	# went to 2100, which let an album ship a dial with seventy years of future
+	# on it — and a zip of scans stamped with this year's upload date used to
+	# drag the worked-out end there by itself.
+	_guess_from = _spin(0.0, float(AlbumSchema.current_year()), 1.0, 84)
 	_guess_from.value_changed.connect(func(v: float) -> void:
 		session.album.guess_year_min = int(v)
 		_refresh_dial_note())
 	dial.add_child(_guess_from)
 	dial.add_child(_fixed_small("to", 24))
-	_guess_to = _spin(0.0, 2100.0, 1.0)
+	_guess_to = _spin(0.0, float(AlbumSchema.current_year()), 1.0, 84)
 	_guess_to.value_changed.connect(func(v: float) -> void:
 		session.album.guess_year_max = int(v)
 		_refresh_dial_note())
@@ -258,6 +293,10 @@ func _build_wall() -> Control:
 	_wall_list = ItemList.new()
 	_wall_list.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_wall_list.add_theme_font_size_override("font_size", LABEL)
+	# Thumbnails beside the lines: ten filenames all look alike, ten
+	# photographs do not.
+	_wall_list.fixed_icon_size = Vector2i(56, 42)
+	_wall_list.icon_mode = ItemList.ICON_MODE_LEFT
 	_wall_list.item_selected.connect(_on_wall_selected)
 	column.add_child(_wall_list)
 
@@ -294,6 +333,15 @@ func _build_detail() -> Control:
 	scroll.add_child(_detail)
 
 	_detail.add_child(_heading("This photograph"))
+
+	# The picture itself, at the top, because "which one is this" is the
+	# question every other field on this panel depends on.
+	_preview = TextureRect.new()
+	_preview.custom_minimum_size = Vector2(0, 200)
+	_preview.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_preview.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	_detail.add_child(_preview)
+
 	_source_note = _small("")
 	_detail.add_child(_source_note)
 
@@ -328,13 +376,13 @@ func _build_detail() -> Control:
 	var coords := HBoxContainer.new()
 	coords.add_theme_constant_override("separation", 8)
 	coords.add_child(_fixed_small("lat", 30))
-	_lat = _spin(-90.0, 90.0, 0.0001)
+	_lat = _spin(-90.0, 90.0, 0.0001, 92)
 	_lat.value_changed.connect(func(v: float) -> void:
 		_with_photo(func(p: AlbumSchema.Photo) -> void: p.truth.lat = v)
 		_sync_map())
 	coords.add_child(_lat)
 	coords.add_child(_fixed_small("lon", 30))
-	_lon = _spin(-180.0, 180.0, 0.0001)
+	_lon = _spin(-180.0, 180.0, 0.0001, 92)
 	_lon.value_changed.connect(func(v: float) -> void:
 		_with_photo(func(p: AlbumSchema.Photo) -> void: p.truth.lon = v)
 		_sync_map())
@@ -342,10 +390,54 @@ func _build_detail() -> Control:
 	_detail.add_child(coords)
 
 	_detail.add_child(_separator())
-	_detail.add_child(_small("When — and how sure you are"))
+	_detail.add_child(_small("When"))
 
-	var when := HBoxContainer.new()
-	when.add_theme_constant_override("separation", 8)
+	# THE DATE ROW. This was one HBox of four controls at 108 px each plus
+	# their labels — about 560 px of contents in a column that is often 400
+	# wide, inside a ScrollContainer with horizontal scrolling switched off.
+	# The year box was half cut off and the month and day boxes were off the
+	# edge entirely, so a photograph that arrived without a date had nowhere to
+	# be given one. Two rows, and boxes narrow enough to fit.
+	_date_note = _small("")
+	_detail.add_child(_date_note)
+
+	# Four columns, so the three boxes wrap onto two short rows instead of one
+	# long one. The detail column is about 350 px wide on a 1024-wide window
+	# and the old single row needed six hundred.
+	var when := GridContainer.new()
+	when.columns = 4
+	when.add_theme_constant_override("h_separation", 6)
+	when.add_theme_constant_override("v_separation", 4)
+	when.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+
+	when.add_child(_fixed_small("year", 34))
+	_year = _spin(0.0, float(AlbumSchema.current_year()), 1.0, 72)
+	when.add_child(_year)
+	when.add_child(_fixed_small("month", 42))
+	_month = _spin(0.0, 12.0, 1.0, 58)
+	when.add_child(_month)
+	when.add_child(_fixed_small("day", 28))
+	_day = _spin(0.0, 31.0, 1.0, 58)
+	when.add_child(_day)
+	for spin in [_year, _month, _day]:
+		spin.value_changed.connect(func(_v: float) -> void: _write_date())
+	_detail.add_child(when)
+
+	_detail.add_child(_small("Zero means you do not know: a year on its own is"
+		+ " a perfectly good answer."))
+
+	# Stacked, not side by side: two buttons in a row needed 346 px of the
+	# column's 320. In here, vertical space is cheap and horizontal is not.
+	var when_buttons := VBoxContainer.new()
+	when_buttons.add_theme_constant_override("separation", 4)
+	when_buttons.add_child(_action("Year from the one above",
+		_on_copy_year, 0))
+	when_buttons.add_child(_action("Fill in the blank years",
+		_on_fill_years, 0))
+	_detail.add_child(when_buttons)
+
+	_detail.add_child(_small("And how sure you are — she is only ever scored"
+		+ " to this much"))
 	_precision = OptionButton.new()
 	_precision.add_item("to the day", AlbumSchema.DatePrecision.DAY)
 	_precision.add_item("the month", AlbumSchema.DatePrecision.MONTH)
@@ -354,20 +446,7 @@ func _build_detail() -> Control:
 	_precision.item_selected.connect(func(_i: int) -> void:
 		_with_photo(func(p: AlbumSchema.Photo) -> void:
 			p.truth.date_precision = _precision.get_selected_id() as AlbumSchema.DatePrecision))
-	when.add_child(_precision)
-
-	when.add_child(_fixed_small("year", 38))
-	_year = _spin(0.0, 2100.0, 1.0)
-	when.add_child(_year)
-	when.add_child(_fixed_small("month", 46))
-	_month = _spin(0.0, 12.0, 1.0)
-	when.add_child(_month)
-	when.add_child(_fixed_small("day", 34))
-	_day = _spin(0.0, 31.0, 1.0)
-	when.add_child(_day)
-	for spin in [_year, _month, _day]:
-		spin.value_changed.connect(func(_v: float) -> void: _write_date())
-	_detail.add_child(when)
+	_detail.add_child(_precision)
 
 	_detail.add_child(_separator())
 	_detail.add_child(_small("What he says if she asks. Each one costs her"
@@ -391,12 +470,19 @@ func _build_detail() -> Control:
 	# Baked lines are the one part of the album the author did not write, so
 	# somebody has to say they have read them (plan §8.3).
 	_approved = CheckBox.new()
-	_approved.text = "I have read these three lines and he would say them"
+	# Short, because a Button's width is its text and this column is narrow —
+	# the long version of this line needed 381 px in a 320 px column and hung
+	# off the edge. The sentence that explains it goes underneath, in a label
+	# that wraps.
+	_approved.text = "He would say these"
+	_approved.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_approved.add_theme_font_size_override("font_size", LABEL)
 	_approved.toggled.connect(func(on: bool) -> void:
 		_with_photo(func(p: AlbumSchema.Photo) -> void:
 			p.curator.approved_by_author = on))
 	_detail.add_child(_approved)
+	_detail.add_child(_small("Tick it once you have read all three and they"
+		+ " sound like him. Nothing saves until every photograph is ticked."))
 
 	_detail.add_child(_small("What he says once it is revealed"))
 	_monologue = _text_area(60)
@@ -502,21 +588,25 @@ func _text_area(height: int) -> TextEdit:
 	return t
 
 
-func _spin(low: float, high: float, step: float) -> SpinBox:
+func _spin(low: float, high: float, step: float, width: int = 108) -> SpinBox:
 	var s := SpinBox.new()
 	s.min_value = low
 	s.max_value = high
 	s.step = step
 	s.allow_greater = false
 	s.allow_lesser = false
-	s.custom_minimum_size = Vector2(108, 0)
+	s.custom_minimum_size = Vector2(width, 0)
+	# Otherwise a box in a full-width row keeps its minimum and the row's
+	# labels take the rest, which is what pushed the date fields off the edge.
+	s.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	return s
 
 
-func _action(text: String, handler: Callable) -> Button:
+func _action(text: String, handler: Callable, width: int = 180) -> Button:
 	var b := Button.new()
 	b.text = text
-	b.custom_minimum_size = Vector2(180, 34)
+	b.custom_minimum_size = Vector2(width, 34)
+	b.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	b.add_theme_font_size_override("font_size", BODY)
 	b.pressed.connect(handler)
 	return b
@@ -723,6 +813,51 @@ func _with_photo(action: Callable) -> void:
 	_refresh_wall_labels()
 
 
+## The year off the photograph above this one on the wall. A folder of scans
+## from the same summer is the common case, and typing 1974 ten times is not
+## the author's job.
+func _on_copy_year() -> void:
+	if _selected <= 0:
+		_set_status("There is nothing above this one to copy a year from.")
+		return
+	var above := session.slot_at(_selected - 1)
+	if above == null or not above.photo.truth.date.is_set():
+		_set_status("The one above it has no year either.")
+		return
+
+	var year := above.photo.truth.date.year
+	_year.set_value_no_signal(float(year))
+	_write_date()
+	_read_photo_fields()
+	_set_status("Dated %d, the same as the one above it." % year)
+
+
+## Stamp this year onto every photograph that has none. Nothing that already
+## carries a date is touched — the point is the scans that arrived blank.
+func _on_fill_years() -> void:
+	var year := int(_year.value)
+	if year <= 0:
+		_set_status("Put a year in the box first.")
+		return
+
+	var filled := 0
+	for i in session.slot_count():
+		var photo := session.slot_at(i).photo
+		if photo.truth.date.is_set():
+			continue
+		photo.truth.date.year = year
+		filled += 1
+
+	if filled == 0:
+		_set_status("They all have a year already.")
+		return
+	_refresh()
+	_read_photo_fields()
+	_set_status("Gave %d photograph%s the year %d. The ones that already had"
+		% [filled, "" if filled == 1 else "s", year]
+		+ " a date were left alone.")
+
+
 func _write_date() -> void:
 	_with_photo(func(p: AlbumSchema.Photo) -> void:
 		p.truth.date.year = int(_year.value)
@@ -805,7 +940,8 @@ func _refresh_wall_labels() -> void:
 			where = "(nowhere yet)"
 		var when := photo.truth.date.label() if photo.truth.date.is_set() \
 			else "(no date)"
-		_wall_list.add_item("%d.  %s — %s" % [i + 1, where, when])
+		_wall_list.add_item("%d.  %s — %s" % [i + 1, where, when],
+			slot.thumbnail())
 	if _selected >= 0 and _selected < _wall_list.item_count:
 		_wall_list.select(_selected)
 
@@ -870,12 +1006,16 @@ func _read_album_fields() -> void:
 func _read_photo_fields() -> void:
 	var slot := session.slot_at(_selected)
 	if slot == null:
-		_source_note.text = "Nothing selected."
+		_source_note.text = "Nothing hung yet — pick one from your folder."
+		_preview.texture = null
+		if _date_note != null:
+			_date_note.text = ""
 		return
 	var photo := slot.photo
 
 	_source_note.text = "%s · %d × %d · %s" % [slot.source_name,
 		slot.source_width, slot.source_height, _kb(slot.bytes_held())]
+	_preview.texture = slot.thumbnail()
 
 	_photo_title.text = photo.content.title
 	_description.text = photo.content.description
@@ -886,6 +1026,7 @@ func _read_photo_fields() -> void:
 	_year.set_value_no_signal(float(photo.truth.date.year))
 	_month.set_value_no_signal(float(photo.truth.date.month))
 	_day.set_value_no_signal(float(photo.truth.date.day))
+	_refresh_date_note(photo)
 
 	for i in _hints.size():
 		_hints[i].text = photo.curator.hints[i] if i < photo.curator.hints.size() \
@@ -895,6 +1036,27 @@ func _read_photo_fields() -> void:
 	_private.text = photo.content.private_note
 
 	_sync_map()
+
+
+## Whether this photograph brought a date with it, and where from. An undated
+## scan is the normal case and the author needs to be told, not left to notice
+## three empty boxes.
+func _refresh_date_note(photo: AlbumSchema.Photo) -> void:
+	if _date_note == null:
+		return
+	if not photo.truth.date.is_set():
+		_date_note.text = "This one came with no date. Set it here — a year on"
+		_date_note.text += " its own is enough."
+		return
+
+	var slot := session.slot_at(_selected)
+	var came_from := "off the photograph"
+	if slot != null and slot.from_sidecar:
+		# Worth naming: Google's date is when the file was made, which for a
+		# scanned print is the day it was scanned, not the day it was taken.
+		came_from = "out of Google's export — check it, a scan is dated the" \
+			+ " day it was scanned"
+	_date_note.text = "%s, %s." % [photo.truth.date.label(), came_from]
 
 
 # ------------------------------------------------------------------- export

@@ -50,6 +50,9 @@ var hallway: HallwayBuilder.Result = null
 var frames: Array[PhotoFrame] = []
 var player: PlayerController = null
 var companion: PixelFigure = null
+## Who the two of them are, read once when the hall is built. The player
+## controller builds its own figure from the same file.
+var cast: CastProfile = null
 
 var rounds: RoundController = null
 var hud: Node = null
@@ -346,11 +349,14 @@ func _build_characters() -> void:
 	add_child(player)
 	player.transform = hallway.player_start
 
-	# He waits at the far end, in the dark, facing back up the hall.
+	# The other one of them waits at the far end, in the dark, facing back up
+	# the hall. Which one that is depends on who the player chose to walk as.
+	cast = CastProfile.load_saved()
+	var waiting := cast.companion_figure()
 	companion = PixelFigure.new()
 	companion.name = "Companion"
 	add_child(companion)
-	companion.build(PixelFigure.Palette.husband())
+	companion.build(waiting.to_palette(), waiting.form)
 	companion.transform = hallway.companion_end
 	companion.rotation_degrees = Vector3(0, 180, 0)
 
@@ -375,7 +381,7 @@ func _build_round_logic() -> void:
 
 	ending = EndingSequence.new()
 	ending.name = "EndingSequence"
-	ending.setup(player, companion, album)
+	ending.setup(player, companion, album, cast)
 	add_child(ending)
 
 	# Above the fade, so the numbers arrive on a white screen rather than under

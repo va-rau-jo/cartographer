@@ -51,6 +51,13 @@ const FIGURE_HEIGHT := float(SPRITE_HEIGHT) * PIXEL
 
 enum View { FRONT, SIDE, BACK }
 
+## Which body is drawn. Either of them can be the one you play (see
+## CastProfile), so both builds are drawn here from the same primitives and the
+## same five-colour palette: a skirt and a bun, or trousers and a short crop.
+## They are the same height — the hug at the ending is one drawn pose and it
+## expects a pair it already knows the proportions of.
+enum Form { WOMAN, MAN }
+
 ## Palette indices.
 const EMPTY := 0
 const SKIN := 1
@@ -114,6 +121,8 @@ class Palette extends RefCounted:
 
 
 var palette := Palette.new()
+## Which of the two bodies is drawn.
+var form: Form = Form.WOMAN
 ## Where the figure is looking, in its own local space. Movement sets this.
 var view: View = View.FRONT
 
@@ -124,9 +133,13 @@ var _bob_phase := 0.0
 var _body: Node3D = null
 
 
-func build(p: Palette = null) -> void:
+## `new_form` of -1 means "keep whichever body this figure is already drawn as",
+## so existing callers that only care about colours are unaffected.
+func build(p: Palette = null, new_form: int = -1) -> void:
 	if p != null:
 		palette = p
+	if new_form >= 0:
+		form = new_form as Form
 
 	_material = VoxelMesher.make_material()
 	var colours := palette.to_array()
@@ -214,14 +227,14 @@ func animate_walk(delta: float, speed: float) -> void:
 ## well as freed: queue_free alone is deferred to the end of the frame, so the
 ## new figure and the old one were both in the scene — and both drawn — until
 ## then, which a triangle count caught before an eye would have.
-func apply_palette(p: Palette) -> void:
+func apply_palette(p: Palette, new_form: int = -1) -> void:
 	palette = p
 	for child in get_children():
 		remove_child(child)
 		child.queue_free()
 	_views.clear()
 	_body = null
-	build(p)
+	build(p, new_form)
 
 
 func total_triangles() -> int:
@@ -399,6 +412,8 @@ func _draw_head(c: PackedByteArray, cx: int, front: bool, profile: bool) -> void
 
 
 func _front_canvas() -> PackedByteArray:
+	if form == Form.MAN:
+		return _front_canvas_man()
 	var c := _new_canvas()
 	var cx := int(CENTRE)
 
@@ -430,6 +445,8 @@ func _front_canvas() -> PackedByteArray:
 
 
 func _side_canvas() -> PackedByteArray:
+	if form == Form.MAN:
+		return _side_canvas_man()
 	var c := _new_canvas()
 	var cx := int(CENTRE)
 
@@ -467,6 +484,8 @@ func _side_canvas() -> PackedByteArray:
 
 
 func _back_canvas() -> PackedByteArray:
+	if form == Form.MAN:
+		return _back_canvas_man()
 	var c := _new_canvas()
 	var cx := int(CENTRE)
 
@@ -484,6 +503,168 @@ func _back_canvas() -> PackedByteArray:
 
 	_rect(c, cx - 1, 42, cx + 1, 45, SKIN)
 	_draw_head(c, cx, false, false)
+
+	_shade_right(c, cx + 2)
+	_ground_contact(c)
+	return c
+
+
+# --------------------------------------------------------------- him, drawn
+
+## The same figure with three changes, which between them are the whole
+## difference between reading as a woman and reading as a man at this size:
+## trousers with a gap between the legs instead of a skirt, a squarer and
+## slightly wider torso, and a short crop instead of a bun.
+##
+## The palette slots do not change — `dress` is his trousers and `wrap` is his
+## jumper — so one set of swatches dresses either of them and the shading pass
+## below is shared.
+func _draw_head_man(c: PackedByteArray, cx: int, front: bool,
+		profile: bool) -> void:
+	# A squarer jaw. Her head is a rounded rectangle; his keeps the two corners
+	# at the chin (y = 44 is the chin, y = 55 the crown).
+	_rect(c, cx - 4, 44, cx + 4, 54, SKIN)
+
+	# A short crop: a cap over the crown and a row down each side to the
+	# temples, ending above the ears. It has to be four rows deep and joined to
+	# the sides — at three rows and two loose pixels it read as a cap resting on
+	# his head rather than as hair, which a flat render of the canvas showed at
+	# once and the 3D one did not.
+	_round_rect(c, cx - 5, 52, cx + 5, 55, HAIR)
+	_rect(c, cx - 5, 50, cx - 5, 52, HAIR)
+	_rect(c, cx + 5, 50, cx + 5, 52, HAIR)
+	# Receding at the temples, which is most of what makes him his age.
+	_px(c, cx - 4, 51, HAIR_SHADE)
+	_px(c, cx + 4, 51, HAIR_SHADE)
+
+	# Ears, which show on him because the hair stops above them.
+	_px(c, cx - 5, 48, SKIN)
+	_px(c, cx + 5, 48, SKIN)
+
+	if not front:
+		# The whole head, chin included. Stopping at y = 48 left his jaw
+		# showing as bare skin from behind.
+		for y in range(44, 56):
+			for x in range(cx - 6, cx + 7):
+				if _sample(c, x, y) == SKIN:
+					_px(c, x, y, HAIR)
+		# The back of a short haircut: a shaded nape rather than a bun.
+		_rect(c, cx - 3, 47, cx + 3, 49, HAIR_SHADE)
+		return
+
+	if profile:
+		for y in range(44, 56):
+			for x in range(cx - 5, cx):
+				if _sample(c, x, y) == SKIN:
+					_px(c, x, y, HAIR)
+		# The back of the head, which the cap alone does not cover in profile.
+		_rect(c, cx - 6, 48, cx - 4, 53, HAIR)
+		_px(c, cx + 3, 49, EYE)
+		# A nose, one pixel proud of the face, then the brow and the mouth. At
+		# this size that single pixel is most of what says "a man, in profile".
+		_px(c, cx + 5, 47, SKIN)
+		_rect(c, cx + 2, 50, cx + 4, 50, HAIR_SHADE)
+		_rect(c, cx + 2, 45, cx + 4, 45, SKIN_SHADE)
+		return
+
+	_px(c, cx - 2, 49, EYE)
+	_px(c, cx + 2, 49, EYE)
+	# Heavy brows, directly over the eyes: the one feature that separates his
+	# face from hers head-on.
+	_rect(c, cx - 3, 50, cx - 1, 50, HAIR_SHADE)
+	_rect(c, cx + 1, 50, cx + 3, 50, HAIR_SHADE)
+	_rect(c, cx - 1, 45, cx + 1, 45, SKIN_SHADE)
+
+
+## Trousers: two legs with daylight between them, which is the single strongest
+## read at this size — her skirt is one solid taper to the hem.
+func _draw_trousers(c: PackedByteArray, cx: int) -> void:
+	_rect(c, cx - 6, 3, cx - 2, 26, DRESS)
+	_rect(c, cx + 2, 3, cx + 6, 26, DRESS)
+	# Seat and waist, where the legs join.
+	_rect(c, cx - 6, 24, cx + 6, 29, DRESS)
+
+
+func _front_canvas_man() -> PackedByteArray:
+	var c := _new_canvas()
+	var cx := int(CENTRE)
+
+	# Bigger flatter shoes, set wider than hers.
+	_rect(c, cx - 7, 0, cx - 2, 2, SHOE)
+	_rect(c, cx + 2, 0, cx + 7, 2, SHOE)
+
+	_draw_trousers(c, cx)
+
+	# Torso: straight sided and a little broader than hers, in the jumper, with
+	# the collar of a shirt open at the neck.
+	_taper(c, 29, 43, 7.0, 7.5, CENTRE, WRAP)
+	_rect(c, cx - 2, 41, cx + 2, 43, SKIN_SHADE)
+
+	# Sleeves outside the body, hands below them. His shoulders are a pixel
+	# wider each side.
+	_rect(c, cx - 10, 29, cx - 7, 41, WRAP)
+	_rect(c, cx + 7, 29, cx + 10, 41, WRAP)
+	_rect(c, cx - 10, 25, cx - 7, 29, SKIN)
+	_rect(c, cx + 7, 25, cx + 10, 29, SKIN)
+
+	# A thicker neck, then the head.
+	_rect(c, cx - 2, 42, cx + 2, 45, SKIN)
+	_draw_head_man(c, cx, true, false)
+
+	_shade_right(c, cx + 2)
+	_ground_contact(c)
+	return c
+
+
+func _side_canvas_man() -> PackedByteArray:
+	var c := _new_canvas()
+	var cx := int(CENTRE)
+
+	# One foot, pointing forward (+x).
+	_rect(c, cx - 4, 0, cx + 6, 2, SHOE)
+
+	# The near leg, with the far one a shade behind it.
+	_taper(c, 3, 27, 4.0, 3.5, CENTRE - 1.5, DRESS_SHADE)
+	_taper(c, 3, 27, 4.0, 3.5, CENTRE + 1.0, DRESS)
+	_rect(c, cx - 5, 24, cx + 4, 29, DRESS)
+
+	# Torso with a slight stoop — less than hers; he is lying down most of the
+	# time she is walking, and upright is how she remembers him.
+	for y in range(29, 44):
+		var lean := float(y - 29) / 15.0 * 1.5
+		_rect(c, int(round(CENTRE - 5.0 + lean)), y,
+			int(round(CENTRE + 5.0 + lean)), y, WRAP)
+
+	# The near arm, hanging, and its hand.
+	_rect(c, cx + 2, 29, cx + 5, 41, WRAP_SHADE)
+	_rect(c, cx + 2, 25, cx + 5, 29, SKIN_SHADE)
+
+	_rect(c, cx + 1, 42, cx + 3, 45, SKIN)
+	_draw_head_man(c, cx + 2, true, true)
+
+	_shade_right(c, cx + 4)
+	_ground_contact(c)
+	return c
+
+
+func _back_canvas_man() -> PackedByteArray:
+	var c := _new_canvas()
+	var cx := int(CENTRE)
+
+	_rect(c, cx - 7, 0, cx - 2, 2, SHOE)
+	_rect(c, cx + 2, 0, cx + 7, 2, SHOE)
+
+	_draw_trousers(c, cx)
+
+	_taper(c, 29, 43, 7.0, 7.5, CENTRE, WRAP)
+
+	_rect(c, cx - 10, 29, cx - 7, 41, WRAP)
+	_rect(c, cx + 7, 29, cx + 10, 41, WRAP)
+	_rect(c, cx - 10, 25, cx - 7, 29, SKIN)
+	_rect(c, cx + 7, 25, cx + 10, 29, SKIN)
+
+	_rect(c, cx - 2, 42, cx + 2, 45, SKIN)
+	_draw_head_man(c, cx, false, false)
 
 	_shade_right(c, cx + 2)
 	_ground_contact(c)

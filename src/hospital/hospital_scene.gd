@@ -43,6 +43,10 @@ var _fade: SceneFade = null
 var _window_light: OmniLight3D = null
 var _window_pane: MeshInstance3D = null
 var _her: PixelFigure = null
+## Who is in the bed and who is standing beside it. The dying one is whoever
+## the player is NOT: the player has come into their mind, so they cannot also
+## be the one lying there.
+var _cast: CastProfile = null
 var _prompt: Label = null
 var _prompt_layer: CanvasLayer = null
 var _base_exposure := 0.62
@@ -51,6 +55,8 @@ var _env: Environment = null
 
 func _ready() -> void:
 	GameState.phase = GameState.Phase.HOSPITAL
+
+	_cast = CastProfile.load_saved()
 
 	_build_environment()
 	_build_room()
@@ -267,7 +273,7 @@ func _build_bed() -> void:
 		bed_centre + Vector3(0.36, 0.70, -0.12), blanket, 0.95)
 	_box("Hand", Vector3(0.13, 0.07, 0.15),
 		bed_centre + Vector3(0.36, 0.71, 0.20),
-		PixelFigure.Palette.husband().skin, 0.7)
+		_dying().skin, 0.7)
 
 	_box("Headboard", Vector3(1.10, 0.62, 0.07),
 		bed_centre + Vector3(0, 0.62, -1.06), frame, 0.6)
@@ -285,7 +291,7 @@ func _build_bed() -> void:
 	var head := RestingHead.new()
 	head.name = "RestingHead"
 	add_child(head)
-	head.build(PixelFigure.Palette.husband())
+	head.build(_dying().to_palette(), _dying().form)
 	head.position = bed_centre + Vector3(0, 0.72, -0.78)
 
 
@@ -336,13 +342,28 @@ func _build_furniture() -> void:
 
 # ------------------------------------------------------------------ figures
 
+## The one in the bed, and the one who is about to go in. Both fall back to the
+## default cast, so this scene still builds with no saved profile at all.
+func _dying() -> FigureProfile:
+	if _cast == null:
+		_cast = CastProfile.load_saved()
+	return _cast.companion_figure()
+
+
+func _standing() -> FigureProfile:
+	if _cast == null:
+		_cast = CastProfile.load_saved()
+	return _cast.player_figure()
+
+
 func _build_figures() -> void:
 	# She stands at the near side of the bed, turned toward him, so the camera
 	# sees her back and her profile rather than her face. This is his scene.
 	_her = PixelFigure.new()
 	_her.name = "Her"
 	add_child(_her)
-	_her.build()
+	var standing := _standing()
+	_her.build(standing.to_palette(), standing.form)
 	_her.position = Vector3(0.62, 0.0, -1.05)
 	_her.rotation_degrees = Vector3(0, 90, 0)
 

@@ -16,6 +16,25 @@ const SCHEMA_VERSION := 1
 const PHOTOS_PER_ALBUM := 10
 const BLUR_TIER_COUNT := 4
 
+## The calendar dial's default ends, used when the author has not set their own
+## and the photographs cannot say. 1980 to this year: a span an old couple's
+## photographs actually live in, and one nobody has to scroll through the 1920s
+## to reach. See Album.guess_year_range.
+const DIAL_DEFAULT_MIN := 1980
+## The narrowest the dial may be when it is worked out from the photographs.
+## Ten photographs that all carry the same year — a folder of scans stamped
+## with the day they were scanned — must not become a ten-year dial.
+const DIAL_MIN_SPAN := 30
+## Nothing before this was photographed, and nothing after it has happened.
+const DIAL_FLOOR := 1826
+
+
+## This year, as the calendar knows it. Wrapped so the dial and the validator
+## agree, and so a test can reason about it.
+static func current_year() -> int:
+	return int(Time.get_date_dict_from_system(true).get("year",
+		DIAL_DEFAULT_MIN))
+
 enum DatePrecision { DAY, MONTH, YEAR, DECADE }
 
 const DATE_PRECISION_NAMES := {
@@ -403,6 +422,10 @@ class Album extends RefCounted:
 	func guess_year_range() -> Vector2i:
 		var lo := guess_year_min
 		var hi := guess_year_max
+		var this_year := AlbumSchema.current_year()
+
+		var lo_is_mine := lo > 0
+		var hi_is_mine := hi > 0
 
 		if lo <= 0 or hi <= 0:
 			var found_lo := 9999
@@ -413,13 +436,30 @@ class Album extends RefCounted:
 				found_lo = mini(found_lo, p.truth.date.year)
 				found_hi = maxi(found_hi, p.truth.date.year)
 			if found_lo > found_hi:
-				# Nothing dated at all. A century, ending now-ish.
-				found_lo = 1930
-				found_hi = 2030
+				# Nothing dated at all. A lifetime, ending now: a dial running
+				# to 2040 spends a quarter of its travel on years that have not
+				# happened, and one starting in 1920 on years before the two of
+				# them.
+				found_lo = DIAL_DEFAULT_MIN
+				found_hi = this_year
 			if lo <= 0:
 				lo = (found_lo / 10) * 10 - 10
 			if hi <= 0:
-				hi = ((found_hi / 10) + 1) * 10 + 10
+				# Padded past the latest photograph, but never into the future:
+				# scans and phone exports are full of upload dates, and one
+				# photograph stamped this year used to drag the whole dial
+				# forward to 2040.
+				hi = mini(((found_hi / 10) + 1) * 10 + 10, this_year)
+
+			# A dial nobody could lose on is not a dial. Photographs that all
+			# carry the same wrong year — a folder of scans, say — would
+			# otherwise give her a ten-year range. Only an end the author left
+			# to us is moved: an author who said "start at 2010" meant it.
+			if hi - lo < DIAL_MIN_SPAN:
+				if not lo_is_mine:
+					lo = hi - DIAL_MIN_SPAN
+				elif not hi_is_mine:
+					hi = lo + DIAL_MIN_SPAN
 
 		# Photography's own span, and then a sane ordering.
 		lo = clampi(lo, 1826, 2100)

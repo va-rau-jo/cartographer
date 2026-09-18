@@ -39,8 +39,24 @@ class Slot extends RefCounted:
 	## True when a Google sidecar contributed something to this slot.
 	var from_sidecar := false
 
+	var _thumbnail: ImageTexture = null
+
 	func has_exif_location() -> bool:
 		return not (is_nan(exif_lat) or is_nan(exif_lon))
+
+	## The thumbnail as a texture, decoded once and kept. The editor's lists
+	## and its preview pane all want the same one.
+	func thumbnail() -> ImageTexture:
+		if _thumbnail != null:
+			return _thumbnail
+		if photo == null or not assets.has(photo.thumb_path):
+			return null
+		var img := ImagePipeline.decode(assets[photo.thumb_path], photo.thumb_path)
+		if img == null:
+			return null
+		_thumbnail = ImageTexture.create_from_image(img)
+		return _thumbnail
+
 
 	func bytes_held() -> int:
 		var n := 0
