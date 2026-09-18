@@ -75,6 +75,10 @@ godot --path .
 
 **Begin** plays the whole arc, starting in the hospital room. **Walk the
 gallery (no album)** skips straight to the hall with placeholder pictures.
+**Choose how she looks** sets the player figure's five colours — skin, hair,
+dress, cardigan, shoes — with the real figure turning beside the swatches
+under the hall's own light. Saved to `user://profile.json`, so it is the
+player's own preference and does not travel inside an album.
 
 |          |                                                                                 |
 | -------- | ------------------------------------------------------------------------------- |

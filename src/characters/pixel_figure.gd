@@ -210,11 +210,17 @@ func animate_walk(delta: float, speed: float) -> void:
 		_body.rotation.z = lerpf(_body.rotation.z, 0.0, delta * 8.0)
 
 
+## Rebuild in the new colours. The old meshes are REMOVED from the tree as
+## well as freed: queue_free alone is deferred to the end of the frame, so the
+## new figure and the old one were both in the scene — and both drawn — until
+## then, which a triangle count caught before an eye would have.
 func apply_palette(p: Palette) -> void:
 	palette = p
 	for child in get_children():
+		remove_child(child)
 		child.queue_free()
 	_views.clear()
+	_body = null
 	build(p)
 
 

@@ -77,7 +77,8 @@ func _build_figure() -> void:
 	figure = PixelFigure.new()
 	figure.name = "Figure"
 	add_child(figure)
-	figure.build()
+	# Whatever she was last saved as, or the default if nobody has chosen yet.
+	figure.build(FigureProfile.load_saved().to_palette())
 
 
 func _unhandled_input(event: InputEvent) -> void:

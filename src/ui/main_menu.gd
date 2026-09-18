@@ -74,6 +74,8 @@ func _build() -> void:
 
 	column.add_child(_make_button("Build an album", _on_editor_pressed))
 
+	column.add_child(_make_button("Choose how she looks", _on_customize_pressed))
+
 	if not OS.has_feature("web"):
 		column.add_child(_make_button("Quit", _on_quit_pressed))
 
@@ -146,6 +148,13 @@ func _on_editor_pressed() -> void:
 	var err := get_tree().change_scene_to_file("res://scenes/editor/editor.tscn")
 	if err != OK:
 		_set_status("[color=#e08080]Could not open the editor (error %d).[/color]"
+			% err)
+
+
+func _on_customize_pressed() -> void:
+	var err := get_tree().change_scene_to_file("res://scenes/menu/customize.tscn")
+	if err != OK:
+		_set_status("[color=#e08080]Could not open the figure screen (error %d).[/color]"
 			% err)
 
 
