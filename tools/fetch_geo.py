@@ -5,9 +5,10 @@ The map needs an outline to draw. The source is Natural Earth's 110m physical
 coastline — public domain, about 200 KB of GeoJSON — and this turns it into the
 flat, simplified form CoastlineData reads.
 
-    python tools/fetch_geo.py                     # download, simplify, write
+    python tools/fetch_geo.py                     # 50m coastline, simplified
+    python tools/fetch_geo.py --resolution 10m    # every bay and headland
     python tools/fetch_geo.py --from ne.geojson   # use a file you already have
-    python tools/fetch_geo.py --tolerance 0.25    # keep more detail
+    python tools/fetch_geo.py --tolerance 0.02    # keep more detail
     python tools/fetch_geo.py --check             # just report what is there
 
 Why this is a script you have to run, rather than a file in the repository:
@@ -35,24 +36,42 @@ import urllib.error
 import urllib.request
 import zipfile
 
-# Tried in order. The first two are GeoJSON; the third is the shapefile zip,
-# which needs no parsing here because we only reach it if the others fail and
-# we then tell you to extract it yourself.
-SOURCES = [
-    "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/"
-    "geojson/ne_110m_coastline.geojson",
-    "https://cdn.jsdelivr.net/gh/nvkelso/natural-earth-vector@master/"
-    "geojson/ne_110m_coastline.geojson",
-    "https://naciscdn.org/naturalearth/110m/physical/ne_110m_coastline.zip",
-]
+# Natural Earth publishes the same coastline at three levels of detail.
+#
+#   110m  ~2,000 points   continents, and little else
+#    50m  ~12,000 points  countries' coastlines read properly. The default.
+#    10m  ~80,000 points  bays and headlands; heavier to draw and to ship
+#
+# 110m was the first default and turned out to be too coarse to recognise
+# anywhere from, which is the whole point of the map.
+RESOLUTIONS = ["110m", "50m", "10m"]
+DEFAULT_RESOLUTION = "50m"
 
-SOURCE_LABEL = "Natural Earth 110m physical coastline (public domain)"
+
+def sources_for(resolution: str) -> list[str]:
+    """Mirrors to try, in order. The last is the shapefile zip, which this
+    tool does not parse — reaching it means telling you to fetch the GeoJSON
+    yourself."""
+    return [
+        "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/"
+        "master/geojson/ne_%s_coastline.geojson" % resolution,
+        "https://cdn.jsdelivr.net/gh/nvkelso/natural-earth-vector@master/"
+        "geojson/ne_%s_coastline.geojson" % resolution,
+        "https://naciscdn.org/naturalearth/%s/physical/ne_%s_coastline.zip"
+        % (resolution, resolution),
+    ]
+
+
+def label_for(resolution: str) -> str:
+    return ("Natural Earth %s physical coastline (public domain)"
+            % resolution)
 OUT_PATH = os.path.join("data", "geo", "coastlines.json")
 SCHEMA = 1
 
-# Degrees. 0.35 keeps every recognisable bay and headland at the zoom levels
-# the map allows, and drops roughly two thirds of the points.
-DEFAULT_TOLERANCE = 0.35
+# Degrees, per resolution. Simplification is what keeps the file small, but
+# tolerance has to scale with the detail you asked for: 0.35 on the 10m data
+# would throw away exactly the detail that made it worth fetching.
+TOLERANCES = {"110m": 0.35, "50m": 0.12, "10m": 0.04}
 
 # Rings whose whole extent is under this many degrees are islands too small to
 # read on screen at any zoom the map offers, and there are hundreds of them.
@@ -70,9 +89,10 @@ def fetch(url: str) -> bytes:
         return response.read()
 
 
-def load_remote() -> dict:
+def load_remote(resolution: str) -> dict:
     errors = []
-    for url in SOURCES:
+    sources = sources_for(resolution)
+    for url in sources:
         sys.stderr.write("trying %s\n" % url)
         try:
             raw = fetch(url)
@@ -89,7 +109,7 @@ def load_remote() -> dict:
                 "Only the shapefile mirror is reachable (%s).\n"
                 "Download the GeoJSON by hand from\n"
                 "  %s\n"
-                "and re-run with --from <that file>." % (names, SOURCES[0])
+                "and re-run with --from <that file>." % (names, sources[0])
             )
 
         return json.loads(raw.decode("utf-8"))
@@ -97,8 +117,8 @@ def load_remote() -> dict:
     raise SystemExit(
         "Could not reach any Natural Earth mirror:\n  "
         + "\n  ".join(errors)
-        + "\n\nDownload ne_110m_coastline.geojson yourself and re-run with\n"
-        "  python tools/fetch_geo.py --from <path to that file>"
+        + "\n\nDownload ne_%s_coastline.geojson yourself and re-run with\n"
+        "  python tools/fetch_geo.py --from <path to that file>" % resolution
     )
 
 
@@ -251,11 +271,17 @@ def main() -> int:
     parser.add_argument("--from", dest="source", help="a local GeoJSON file")
     parser.add_argument("--out", default=OUT_PATH, help="output path")
     parser.add_argument(
+        "--resolution",
+        choices=RESOLUTIONS,
+        default=DEFAULT_RESOLUTION,
+        help="Natural Earth detail level (default %s)" % DEFAULT_RESOLUTION,
+    )
+    parser.add_argument(
         "--tolerance",
         type=float,
-        default=DEFAULT_TOLERANCE,
-        help="simplification tolerance in degrees (default %.2f)"
-        % DEFAULT_TOLERANCE,
+        default=None,
+        help="simplification tolerance in degrees (default: per resolution, "
+        + ", ".join("%s=%.2f" % (k, v) for k, v in TOLERANCES.items()),
     )
     parser.add_argument(
         "--check", action="store_true", help="report on the existing file"
@@ -265,15 +291,19 @@ def main() -> int:
     if args.check:
         return check(args.out)
 
+    tolerance = args.tolerance
+    if tolerance is None:
+        tolerance = TOLERANCES.get(args.resolution, 0.2)
+
     if args.source:
         geojson = load_local(args.source)
         # Record what it actually came from. A file labelled Natural Earth that
         # is not Natural Earth is worse than one labelled honestly.
         label = "local file: %s" % os.path.basename(args.source)
     else:
-        geojson = load_remote()
-        label = SOURCE_LABEL
-    baked = bake(geojson, args.tolerance, label)
+        geojson = load_remote(args.resolution)
+        label = label_for(args.resolution)
+    baked = bake(geojson, tolerance, label)
 
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
     with open(args.out, "w", encoding="utf-8") as handle:

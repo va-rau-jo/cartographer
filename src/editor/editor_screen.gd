@@ -38,6 +38,9 @@ var _author_note: TextEdit = null
 var _voice_name: LineEdit = null
 var _player_name: LineEdit = null
 var _closing_line: LineEdit = null
+var _guess_from: SpinBox = null
+var _guess_to: SpinBox = null
+var _dial_note: Label = null
 
 # --- per-photo fields ---
 var _photo_title: LineEdit = null
@@ -57,6 +60,8 @@ var _map: MapWidget = null
 var _source_note: Label = null
 
 var _choose_folder: Button = null
+var _choose_archive: Button = null
+var _source_note_footer: Label = null
 var _add_button: Button = null
 var _export_button: Button = null
 
@@ -160,7 +165,42 @@ func _build_header() -> Control:
 		session.album.closing_line = t)
 	right.add_child(_closing_line)
 
+	right.add_child(_small("The calendar dial she guesses with. Leave both at"
+		+ " zero to work it out from the photographs."))
+	var dial := HBoxContainer.new()
+	dial.add_theme_constant_override("separation", 8)
+	dial.add_child(_fixed_small("from", 40))
+	_guess_from = _spin(0.0, 2100.0, 1.0)
+	_guess_from.value_changed.connect(func(v: float) -> void:
+		session.album.guess_year_min = int(v)
+		_refresh_dial_note())
+	dial.add_child(_guess_from)
+	dial.add_child(_fixed_small("to", 24))
+	_guess_to = _spin(0.0, 2100.0, 1.0)
+	_guess_to.value_changed.connect(func(v: float) -> void:
+		session.album.guess_year_max = int(v)
+		_refresh_dial_note())
+	dial.add_child(_guess_to)
+	right.add_child(dial)
+
+	_dial_note = _small("")
+	right.add_child(_dial_note)
+
 	return box
+
+
+## Say what the dial will actually show, whether the author set the ends or
+## left them to the photographs. Guessing what "0" means is not the author's
+## job.
+func _refresh_dial_note() -> void:
+	if _dial_note == null or session == null:
+		return
+	var span := session.album.guess_year_range()
+	var how := "from your own ends"
+	if session.album.guess_year_min <= 0 or session.album.guess_year_max <= 0:
+		how = "worked out from the photographs"
+	_dial_note.text = "she will turn the dial between %d and %d (%s)" \
+		% [span.x, span.y, how]
 
 
 func _build_sources() -> Control:
@@ -178,6 +218,13 @@ func _build_sources() -> Control:
 	_choose_folder.pressed.connect(_on_choose_folder)
 	column.add_child(_choose_folder)
 
+	_choose_archive = Button.new()
+	_choose_archive.text = "Open a .zip…"
+	_choose_archive.tooltip_text = "A Google Photos download, or a Takeout" \
+		+ " export. Dates and locations come across with it."
+	_choose_archive.pressed.connect(_on_choose_archive)
+	column.add_child(_choose_archive)
+
 	_source_list = ItemList.new()
 	_source_list.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_source_list.add_theme_font_size_override("font_size", LABEL)
@@ -189,8 +236,9 @@ func _build_sources() -> Control:
 	_add_button.pressed.connect(_on_add)
 	column.add_child(_add_button)
 
-	column.add_child(_small("Nothing is copied out of your folder. Only the"
-		+ " ten you choose are read."))
+	_source_note_footer = _small("Nothing is copied out of your folder. Only"
+		+ " the ten you choose are read.")
+	column.add_child(_source_note_footer)
 
 	return box
 
@@ -482,32 +530,48 @@ func _separator() -> HSeparator:
 
 # ------------------------------------------------------------------ picking
 
+## Nothing is disabled while a dialog is open; see main_menu.gd for why.
 func _on_choose_folder() -> void:
-	_choose_folder.disabled = true
+	if Platform.is_picking():
+		_set_status("There is already a file dialog open.")
+		return
 	_set_status("Choose the folder your photographs are in…")
 	Platform.pick_image_folder()
 
 
+func _on_choose_archive() -> void:
+	if Platform.is_picking():
+		_set_status("There is already a file dialog open.")
+		return
+	_set_status("Choose a .zip of photographs — a Google Photos download, or"
+		+ " a Takeout export…")
+	Platform.pick_photo_archive()
+
+
 func _on_open_album() -> void:
+	if Platform.is_picking():
+		_set_status("There is already a file dialog open.")
+		return
 	_set_status("Choose a .ccalbum to open…")
 	Platform.pick_album_file()
 
 
 func _on_pick_cancelled() -> void:
-	_choose_folder.disabled = false
 	_set_status("")
 
 
 ## One handler for both pickers, because Platform has one signal. An album
 ## file arrives as a single .ccalbum; a folder arrives as many images.
 func _on_files_picked(files: Array) -> void:
-	_choose_folder.disabled = false
 	if files.is_empty():
 		return
 
 	var first: Platform.PickedFile = files[0]
 	if files.size() == 1 and first.extension() == AlbumIO.ALBUM_EXTENSION:
 		await _open_album_file(first)
+		return
+	if files.size() == 1 and first.extension() == "zip":
+		await _open_archive_file(first)
 		return
 
 	var kept := session.set_sources(files)
@@ -534,6 +598,28 @@ func _open_album_file(file: Platform.PickedFile) -> void:
 	_set_status("Opened '%s'." % session.album.title)
 
 
+## A zip of photographs: a Google Photos album download, or a Takeout export.
+func _open_archive_file(file: Platform.PickedFile) -> void:
+	_set_status("Opening %s…" % file.name)
+
+	var bytes: PackedByteArray = await Platform.read_file(file)
+	if bytes.is_empty():
+		_set_status("Could not read %s." % file.name)
+		return
+
+	var archive := PhotoArchive.from_bytes(bytes)
+	var error := session.set_archive(archive)
+	if not error.is_empty():
+		_set_status("%s: %s" % [file.name, error])
+		return
+
+	_select(-1)
+	var with_metadata := session.archive.with_sidecar_count()
+	_set_status("%d photographs in %s, %d of them with Google's own dates and"
+		% [session.archive.count(), file.name, with_metadata]
+		+ " locations. Pick the ten you want.")
+
+
 func _on_add() -> void:
 	var chosen := _source_list.get_selected_items()
 	if chosen.is_empty():
@@ -544,35 +630,69 @@ func _on_add() -> void:
 		return
 
 	var index: int = chosen[0]
-	if index < 0 or index >= session.sources.size():
+	if index < 0 or index >= session.source_count():
 		return
 
+	var source_name := session.source_name(index)
 	_pending_source = index
-	var file: Platform.PickedFile = session.sources[index]
-	_set_status("Reading %s…" % file.name)
+	_set_status("Reading %s…" % source_name)
 	_add_button.disabled = true
 
-	var bytes: PackedByteArray = await Platform.read_file(file)
+	var error := ""
+	if session.archive != null:
+		# Straight out of the zip: no await, and no Platform round trip.
+		error = session.add_from_archive(index)
+	else:
+		var file: Platform.PickedFile = session.sources[index]
+		var bytes: PackedByteArray = await Platform.read_file(file)
+		if bytes.is_empty():
+			error = "could not read it"
+		else:
+			error = session.add_photo(file.name, bytes)
+
 	_add_button.disabled = false
 	_pending_source = -1
 
-	if bytes.is_empty():
-		_set_status("Could not read %s." % file.name)
-		return
-
-	var error := session.add_photo(file.name, bytes)
 	if not error.is_empty():
-		_set_status("%s: %s" % [file.name, error])
+		_set_status("%s: %s" % [source_name, error])
 		return
 
 	_select(session.slot_count() - 1)
+	_set_status("Hung %s.%s" % [source_name, _what_came_with_it()])
+
+
+## What the photograph brought with it, so the author knows which fields they
+## do not have to type.
+func _what_came_with_it() -> String:
 	var slot := session.slot_at(_selected)
-	var found := ""
-	if slot != null and slot.has_exif_location():
-		found = " Its own coordinates came with it."
-	elif slot != null and slot.exif_date != null and slot.exif_date.is_set():
-		found = " It knew its own date."
-	_set_status("Hung %s.%s" % [file.name, found])
+	if slot == null:
+		return ""
+
+	var found: PackedStringArray = PackedStringArray()
+	if slot.photo.truth.has_location():
+		found.append("where it was taken")
+	if slot.photo.truth.date.is_set():
+		found.append("when")
+	if not slot.photo.content.description.is_empty():
+		found.append("its caption")
+	if found.is_empty():
+		return ""
+
+	var source := "The photograph knew"
+	if slot.from_sidecar:
+		source = "Google's export knew"
+	return " %s %s." % [source, _join_english(found)]
+
+
+static func _join_english(parts: PackedStringArray) -> String:
+	if parts.size() <= 1:
+		return "" if parts.is_empty() else parts[0]
+	if parts.size() == 2:
+		return "%s and %s" % [parts[0], parts[1]]
+	var head: PackedStringArray = PackedStringArray()
+	for i in parts.size() - 1:
+		head.append(parts[i])
+	return "%s and %s" % [", ".join(head), parts[parts.size() - 1]]
 
 
 # ---------------------------------------------------------------- selection
@@ -633,6 +753,11 @@ func _sync_map() -> void:
 		return
 	if photo.truth.has_location():
 		_map.set_pin_lat_lon(photo.truth.lat, photo.truth.lon)
+		# Zoom to where it already is, so the next click nudges the pin rather
+		# than navigating. In the editor the author is correcting a location,
+		# not being quizzed on it.
+		if _map.is_world_view():
+			_map.focus_around(photo.truth.lat, photo.truth.lon)
 	else:
 		_map.clear_pin()
 
@@ -640,6 +765,7 @@ func _sync_map() -> void:
 # ------------------------------------------------------------------ refresh
 
 func _refresh() -> void:
+	_refresh_dial_note()
 	_refresh_sources()
 	_refresh_wall_labels()
 	_refresh_problems()
@@ -653,11 +779,20 @@ func _refresh() -> void:
 func _refresh_sources() -> void:
 	var previous := _source_list.get_selected_items()
 	_source_list.clear()
-	for file in session.sources:
-		var picked: Platform.PickedFile = file
-		_source_list.add_item("%s   %s" % [picked.name, _kb(picked.size)])
+	for i in session.source_count():
+		_source_list.add_item(session.source_label(i))
 	if not previous.is_empty() and previous[0] < _source_list.item_count:
 		_source_list.select(previous[0])
+
+	if _source_note_footer != null:
+		if session.archive != null:
+			var located := session.archive.with_sidecar_count()
+			_source_note_footer.text = ("From the zip. %d of %d came with"
+				+ " Google's own dates and locations; those fill themselves"
+				+ " in.") % [located, session.archive.count()]
+		else:
+			_source_note_footer.text = ("Nothing is copied out of your folder."
+				+ " Only the ten you choose are read.")
 
 
 func _refresh_wall_labels() -> void:
@@ -725,6 +860,9 @@ func _read_album_fields() -> void:
 	_voice_name.text = session.album.curator_voice_name
 	_player_name.text = session.album.curator_player_name
 	_closing_line.text = session.album.closing_line
+	_guess_from.set_value_no_signal(float(session.album.guess_year_min))
+	_guess_to.set_value_no_signal(float(session.album.guess_year_max))
+	_refresh_dial_note()
 
 
 ## Pull the selected photograph into the fields. Set with no_signal where it

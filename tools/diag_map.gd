@@ -68,6 +68,20 @@ func _run() -> void:
 		await get_tree().process_frame
 	_save(window, "31_map_zoomed")
 
+	# The two-stage map: the world with its clickable regions, then what one
+	# click on a region actually gives you.
+	map.reset_view()
+	map.clear_pin()
+	map._hover_region = 0
+	for _i in 3:
+		await get_tree().process_frame
+	_save(window, "32_map_regions")
+
+	map._click(map.unit_to_pixel(Geo.to_unit(48.8566, 2.3522)))
+	for _i in 3:
+		await get_tree().process_frame
+	_save(window, "33_map_one_click")
+
 	print("")
 	print("source         %s" % label)
 	print("lines/points   %d / %d" % [data.polyline_count(), data.point_count()])

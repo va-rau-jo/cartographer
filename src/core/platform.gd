@@ -11,8 +11,12 @@ extends Node
 ## Emitted once per successful pick. `files` is Array[PickedFile].
 signal files_picked(files: Array)
 ## Emitted when a pick yields nothing — user cancelled, or every file was
-## filtered out. Callers should re-enable their UI on this.
+## filtered out.
 signal pick_cancelled()
+
+## What kind of pick is in flight, so a screen can say so and can refuse to
+## start a second one. NONE between picks.
+enum Picking { NONE, IMAGE_FOLDER, ALBUM_FILE, PHOTO_ARCHIVE }
 
 ## A file the user chose. `bytes` is null until read() resolves, because the
 ## whole point on web is that a 1000-file folder stays lazy.
@@ -31,6 +35,7 @@ class PickedFile extends RefCounted:
 
 
 var _backend: RefCounted = null
+var _picking: Picking = Picking.NONE
 
 
 func _ready() -> void:
@@ -59,13 +64,59 @@ func backend_name() -> String:
 ## Ask the user for a folder of images. Resolves via files_picked/pick_cancelled.
 func pick_image_folder() -> void:
 	_ensure_backend()
+	_picking = Picking.IMAGE_FOLDER
 	_backend.pick_image_folder()
 
 
 ## Ask the user for a single .ccalbum file.
 func pick_album_file() -> void:
 	_ensure_backend()
+	_picking = Picking.ALBUM_FILE
 	_backend.pick_album_file()
+
+
+## Ask the user for a .zip of photographs — a Google Photos download, or a
+## Takeout export. Same resolution as the others.
+func pick_photo_archive() -> void:
+	_ensure_backend()
+	_picking = Picking.PHOTO_ARCHIVE
+	_backend.pick_photo_archive()
+
+
+## What is in flight, if anything.
+func picking() -> Picking:
+	return _picking
+
+
+func is_picking() -> bool:
+	return _picking != Picking.NONE
+
+
+## Backends call these instead of emitting the signals themselves, so that
+## every pick resolves exactly once.
+##
+## This exists because of a real bug: a cancelled dialog left the UI's button
+## disabled forever. The desktop FileDialog's `canceled` signal does not
+## always arrive when the OS draws the dialog natively, and a cancelled
+## <input type=file> fires no event at all in older browsers. Rather than
+## trusting either, the backends report through here, a pick that is already
+## resolved is ignored, and the screens do not disable anything they would
+## then have to re-enable.
+func report_picked(files: Array) -> void:
+	if _picking == Picking.NONE:
+		return
+	_picking = Picking.NONE
+	if files.is_empty():
+		pick_cancelled.emit()
+	else:
+		files_picked.emit(files)
+
+
+func report_cancelled() -> void:
+	if _picking == Picking.NONE:
+		return
+	_picking = Picking.NONE
+	pick_cancelled.emit()
 
 
 ## Read one picked file's bytes. This is the expensive call on web, so only

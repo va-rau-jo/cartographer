@@ -327,6 +327,14 @@ class Album extends RefCounted:
 	## write, and no line at all is better than a line he would not have said.
 	var closing_line: String = ""
 
+	## The ends of the calendar dial she guesses with. Zero means "work it out
+	## from the photographs", which is the default and is usually right; set
+	## them when the album's own range would give the answer away, or when a
+	## lifetime of dates should be on the dial whatever these ten happen to
+	## cover. See guess_year_range().
+	var guess_year_min: int = 0
+	var guess_year_max: int = 0
+
 	var scoring := ScoringConfig.new()
 	## Wall order down the hallway. Dramatic, not chronological: open warm,
 	## close with the one that hurts.
@@ -347,6 +355,10 @@ class Album extends RefCounted:
 		a.curator_player_name = str(cur.get("playerName", ""))
 		a.curator_style = str(cur.get("style", ""))
 		a.closing_line = str(cur.get("closingLine", ""))
+
+		var guessing: Dictionary = d.get("guessing", {})
+		a.guess_year_min = int(guessing.get("yearMin", 0))
+		a.guess_year_max = int(guessing.get("yearMax", 0))
 
 		a.scoring = ScoringConfig.from_dict(d.get("scoring", {}))
 		a.hang_order = PackedStringArray(d.get("hangOrder", []))
@@ -373,10 +385,49 @@ class Album extends RefCounted:
 				"style": curator_style,
 				"closingLine": closing_line,
 			},
+			"guessing": {
+				"yearMin": guess_year_min,
+				"yearMax": guess_year_max,
+			},
 			"scoring": scoring.to_dict(),
 			"hangOrder": Array(hang_order),
 			"photos": photo_dicts,
 		}
+
+	## The dial's ends, as the guess panel should show them: the author's own
+	## values where they gave any, and otherwise a padded span around the
+	## photographs' own dates.
+	##
+	## The padding matters. Without it the earliest and latest photographs sit
+	## exactly at the ends of the dial, which tells her their dates for free.
+	func guess_year_range() -> Vector2i:
+		var lo := guess_year_min
+		var hi := guess_year_max
+
+		if lo <= 0 or hi <= 0:
+			var found_lo := 9999
+			var found_hi := 0
+			for p in photos:
+				if not p.truth.date.is_set():
+					continue
+				found_lo = mini(found_lo, p.truth.date.year)
+				found_hi = maxi(found_hi, p.truth.date.year)
+			if found_lo > found_hi:
+				# Nothing dated at all. A century, ending now-ish.
+				found_lo = 1930
+				found_hi = 2030
+			if lo <= 0:
+				lo = (found_lo / 10) * 10 - 10
+			if hi <= 0:
+				hi = ((found_hi / 10) + 1) * 10 + 10
+
+		# Photography's own span, and then a sane ordering.
+		lo = clampi(lo, 1826, 2100)
+		hi = clampi(hi, 1826, 2100)
+		if hi <= lo:
+			hi = lo + 10
+		return Vector2i(lo, hi)
+
 
 	func photo_by_id(photo_id: String) -> Photo:
 		for p in photos:

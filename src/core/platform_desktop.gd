@@ -3,6 +3,7 @@ extends RefCounted
 
 const IMAGE_FILTERS := ["*.jpg,*.jpeg,*.png,*.webp;Images"]
 const ALBUM_FILTERS := ["*.ccalbum;Chrono Cartographer album"]
+const ARCHIVE_FILTERS := ["*.zip,*.ccalbum;Photo archive or album"]
 
 var _host: Node = null
 var _dialog: FileDialog = null
@@ -27,7 +28,11 @@ func pick_image_folder() -> void:
 
 
 func pick_album_file() -> void:
-	_open_dialog(FileDialog.FILE_MODE_OPEN_FILE, ALBUM_FILTERS, _on_album_selected)
+	_open_dialog(FileDialog.FILE_MODE_OPEN_FILE, ALBUM_FILTERS, _on_file_selected)
+
+
+func pick_photo_archive() -> void:
+	_open_dialog(FileDialog.FILE_MODE_OPEN_FILE, ARCHIVE_FILTERS, _on_file_selected)
 
 
 func read_file(file: Platform.PickedFile) -> PackedByteArray:
@@ -70,16 +75,38 @@ func sync_user_fs() -> void:
 func _open_dialog(mode: FileDialog.FileMode, filters: PackedStringArray, cb: Callable) -> void:
 	if _dialog != null and is_instance_valid(_dialog):
 		_dialog.queue_free()
+
+	# Whether this dialog produced a path. Everything below is about making
+	# sure the pick resolves exactly once even if `canceled` never arrives —
+	# with a native OS dialog it sometimes does not, and the button that was
+	# disabled while picking then stayed disabled for good.
+	var chose := [false]
+
 	_dialog = FileDialog.new()
 	_dialog.file_mode = mode
 	_dialog.access = FileDialog.ACCESS_FILESYSTEM
 	_dialog.filters = filters
 	_dialog.use_native_dialog = true
+
+	var chosen := func(path: String) -> void:
+		chose[0] = true
+		cb.call(path)
+
 	if mode == FileDialog.FILE_MODE_OPEN_DIR:
-		_dialog.dir_selected.connect(cb)
+		_dialog.dir_selected.connect(chosen)
 	else:
-		_dialog.file_selected.connect(cb)
-	_dialog.canceled.connect(func() -> void: _host.pick_cancelled.emit())
+		_dialog.file_selected.connect(chosen)
+
+	_dialog.canceled.connect(func() -> void: _host.report_cancelled())
+
+	# The belt to that braces: when the dialog hides without having chosen
+	# anything, the user dismissed it, whatever the engine did or did not emit.
+	var dialog := _dialog
+	_dialog.visibility_changed.connect(func() -> void:
+		if not is_instance_valid(dialog) or dialog.visible or chose[0]:
+			return
+		_host.report_cancelled())
+
 	_host.add_child(_dialog)
 	_dialog.popup_centered_ratio(0.7)
 
@@ -89,7 +116,7 @@ func _on_dir_selected(dir_path: String) -> void:
 	var dir := DirAccess.open(dir_path)
 	if dir == null:
 		CCLog.error("platform", "cannot open dir %s" % dir_path)
-		_host.pick_cancelled.emit()
+		_host.report_cancelled()
 		return
 
 	dir.list_dir_begin()
@@ -108,18 +135,16 @@ func _on_dir_selected(dir_path: String) -> void:
 	dir.list_dir_end()
 
 	CCLog.info("platform", "picked %d images from %s" % [files.size(), dir_path])
-	if files.is_empty():
-		_host.pick_cancelled.emit()
-	else:
-		_host.files_picked.emit(files)
+	_host.report_picked(files)
 
 
-func _on_album_selected(path: String) -> void:
+## One file, whatever kind: a .ccalbum, or a .zip of photographs.
+func _on_file_selected(path: String) -> void:
 	var pf := Platform.PickedFile.new()
 	pf.name = path.get_file()
 	pf.handle = path
 	pf.size = _file_size(path)
-	_host.files_picked.emit([pf])
+	_host.report_picked([pf])
 
 
 func _file_size(path: String) -> int:

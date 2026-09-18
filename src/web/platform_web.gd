@@ -15,37 +15,62 @@ extends RefCounted
 ## folder is instant and we only pay for the ten we actually use.
 
 const _BOOTSTRAP := """
-window.__cc = window.__cc || { files: [], readBuf: null, readErr: null };
-window.__ccPickImages = function() {
+window.__cc = window.__cc || { files: [], readBuf: null, readErr: null, pick: 0 };
+
+// One picker for every kind of pick, and one place that decides a pick is
+// over. A cancelled <input type=file> fires no change event at all, and the
+// `cancel` event only exists in newer browsers, so there are three ways out:
+// change, cancel, and — for everything older — the window regaining focus
+// with no file chosen. Without that last one the UI waits forever.
+window.__ccPick = function(opts) {
+  const token = ++window.__cc.pick;
   const i = document.createElement('input');
   i.type = 'file';
-  i.webkitdirectory = true;
-  i.multiple = true;
-  i.accept = 'image/jpeg,image/png,image/webp';
-  i.onchange = function() {
-	window.__cc.files = Array.from(i.files);
+  if (opts.directory) { i.webkitdirectory = true; i.multiple = true; }
+  if (opts.accept) { i.accept = opts.accept; }
+  i.style.display = 'none';
+  document.body.appendChild(i);
+
+  let settled = false;
+  const cleanup = function() { if (i.parentNode) { i.parentNode.removeChild(i); } };
+
+  const finish = function(files) {
+	if (settled || token !== window.__cc.pick) { return; }
+	settled = true;
+	cleanup();
+	window.__cc.files = files || [];
 	const meta = window.__cc.files.map(function(f, idx) {
 	  return { idx: idx, name: f.name, rel: f.webkitRelativePath || f.name,
 			   size: f.size, mtime: Math.floor((f.lastModified || 0) / 1000) };
 	});
 	window.__ccOnPicked(JSON.stringify(meta));
   };
-  // Some browsers fire no event on cancel; the editor's UI must tolerate that.
+
+  i.onchange = function() { finish(Array.from(i.files)); };
+  i.oncancel = function() { finish([]); };
+
+  // The fallback: a focus event that arrives with nothing selected means the
+  // dialog was dismissed. Delayed, because on some browsers focus comes back
+  // a moment before the change event does.
+  const onFocus = function() {
+	window.removeEventListener('focus', onFocus);
+	setTimeout(function() {
+	  if (!settled && (!i.files || i.files.length === 0)) { finish([]); }
+	}, 1200);
+  };
+  window.addEventListener('focus', onFocus);
+
   i.click();
 };
+window.__ccPickImages = function() {
+  window.__ccPick({ directory: true,
+					accept: 'image/jpeg,image/png,image/webp' });
+};
 window.__ccPickAlbum = function() {
-  const i = document.createElement('input');
-  i.type = 'file';
-  i.accept = '.ccalbum,application/zip';
-  i.onchange = function() {
-	window.__cc.files = Array.from(i.files);
-	const meta = window.__cc.files.map(function(f, idx) {
-	  return { idx: idx, name: f.name, rel: f.name, size: f.size,
-			   mtime: Math.floor((f.lastModified || 0) / 1000) };
-	});
-	window.__ccOnPicked(JSON.stringify(meta));
-  };
-  i.click();
+  window.__ccPick({ accept: '.ccalbum,application/zip' });
+};
+window.__ccPickArchive = function() {
+  window.__ccPick({ accept: '.zip,.ccalbum,application/zip' });
 };
 window.__ccReadFile = function(idx, token) {
   const f = window.__cc.files[idx];
@@ -103,6 +128,10 @@ func pick_album_file() -> void:
 	JavaScriptBridge.eval("window.__ccPickAlbum();", true)
 
 
+func pick_photo_archive() -> void:
+	JavaScriptBridge.eval("window.__ccPickArchive();", true)
+
+
 func read_file(file: Platform.PickedFile) -> PackedByteArray:
 	var idx := int(file.handle)
 	_read_token += 1
@@ -146,7 +175,7 @@ func _on_js_picked(args: Array) -> void:
 	var parsed: Variant = JSON.parse_string(raw)
 	if typeof(parsed) != TYPE_ARRAY:
 		CCLog.error("platform", "bad pick payload")
-		_host.pick_cancelled.emit()
+		_host.report_cancelled()
 		return
 
 	var files: Array = []
@@ -160,10 +189,7 @@ func _on_js_picked(args: Array) -> void:
 		files.append(pf)
 
 	CCLog.info("platform", "picked %d files" % files.size())
-	if files.is_empty():
-		_host.pick_cancelled.emit()
-	else:
-		_host.files_picked.emit(files)
+	_host.report_picked(files)
 
 
 func _on_js_read(args: Array) -> void:

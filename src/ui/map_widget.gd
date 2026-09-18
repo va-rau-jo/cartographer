@@ -11,9 +11,19 @@ extends Control
 ##      still draws a graticule and still returns exact coordinates; it just
 ##      is not much help to look at. See CoastlineData.
 ##
-## Interaction: left-click to drop the pin, drag to pan, wheel to zoom about the
-## cursor, double-click to reset the view. No pin exists until she places one —
-## a map that opens with a pin in the Atlantic invites her to just accept it.
+## Interaction happens in two stages, because a world map is too coarse to pin
+## a town on and a zoomed map is too small to find a country on:
+##
+##   * Zoomed out, a click ZOOMS IN — to the region it landed on, or to a
+##     window around the click when that is open ocean. The regions are drawn
+##     and labelled, and the one under the cursor is highlighted, so it is
+##     obvious that the first click is navigation.
+##   * Zoomed in, a click PLACES THE PIN.
+##
+## Drag to pan, wheel to zoom about the cursor, double-click or "Back to the
+## world" to start again, right-click to take the pin back. No pin exists until
+## she places one — a map that opens with a pin in the Atlantic invites her to
+## just accept it.
 
 signal pin_moved(lat: float, lon: float)
 signal pin_cleared()
@@ -33,6 +43,37 @@ const COLOR_GRID := Color(0.20, 0.23, 0.27)
 const COLOR_EQUATOR := Color(0.30, 0.34, 0.38)
 const COLOR_PIN := Color(0.94, 0.62, 0.36)
 const COLOR_TEXT := Color(0.72, 0.75, 0.72)
+const COLOR_REGION := Color(0.30, 0.35, 0.40)
+const COLOR_REGION_HOVER := Color(0.52, 0.60, 0.52)
+
+## Above this, a click pins; below it, a click zooms.
+const PIN_ZOOM := 1.35
+## How much bigger than the region itself to leave in view.
+const FOCUS_MARGIN := 1.10
+## A click on a region always gets closer than this, even when the region is
+## too wide to fit at any zoom. Antarctica spans all 360 degrees, so fitting
+## it whole means not zooming at all — and a click that visibly does nothing
+## reads as a broken map. Above PIN_ZOOM, so the next click pins.
+const MIN_FOCUS_ZOOM := 2.0
+## When a click lands in open water, zoom to a window this many degrees across.
+const OPEN_WATER_SPAN := 44.0
+
+## Clickable regions, for navigation only.
+##
+## These are deliberately crude boxes — they are a way of saying "somewhere
+## around here", not a claim about where a continent ends, and nothing is
+## scored against them. Where they overlap (Europe and Asia, always) the one
+## whose centre is nearer the click wins. Longitudes stop at 179.9 because
+## Geo.wrap_lon sends exactly 180 round to the western edge.
+const REGIONS := [
+	{"name": "Europe", "lon": Vector2(-24.0, 44.0), "lat": Vector2(34.0, 71.0)},
+	{"name": "Africa", "lon": Vector2(-19.0, 52.0), "lat": Vector2(-35.0, 33.0)},
+	{"name": "Asia", "lon": Vector2(44.0, 150.0), "lat": Vector2(3.0, 74.0)},
+	{"name": "North America", "lon": Vector2(-168.0, -52.0), "lat": Vector2(13.0, 72.0)},
+	{"name": "South America", "lon": Vector2(-82.0, -34.0), "lat": Vector2(-56.0, 13.0)},
+	{"name": "Oceania", "lon": Vector2(110.0, 179.9), "lat": Vector2(-48.0, 0.0)},
+	{"name": "Antarctica", "lon": Vector2(-179.9, 179.9), "lat": Vector2(-85.0, -62.0)},
+]
 
 var coastlines: CoastlineData = null
 
@@ -45,7 +86,9 @@ var _dragging := false
 var _drag_from := Vector2.ZERO
 var _drag_centre := Vector2.ZERO
 var _hover_unit := Vector2(-1, -1)
+var _hover_region := -1
 var _font: Font = null
+var _back: Button = null
 
 
 func setup(data: CoastlineData) -> void:
@@ -62,7 +105,26 @@ func _ready() -> void:
 	if coastlines == null:
 		coastlines = CoastlineData.load_baked()
 	_font = ThemeDB.fallback_font
+	_build_back_button()
 	queue_redraw()
+
+
+## The way out of a zoom, as part of the widget rather than something each
+## screen has to remember to add. Double-click does it too, but nobody guesses
+## a double-click.
+func _build_back_button() -> void:
+	_back = Button.new()
+	_back.text = "◀ the whole world"
+	_back.add_theme_font_size_override("font_size", 13)
+	_back.focus_mode = Control.FOCUS_NONE
+	_back.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	_back.offset_left = -150
+	_back.offset_right = -8
+	_back.offset_top = 8
+	_back.offset_bottom = 32
+	_back.visible = false
+	_back.pressed.connect(reset_view)
+	add_child(_back)
 
 
 # ------------------------------------------------------------------- state
@@ -102,6 +164,7 @@ func zoom() -> float:
 func reset_view() -> void:
 	_zoom = MIN_ZOOM
 	_centre = Vector2(0.5, 0.5)
+	_hover_region = -1
 	queue_redraw()
 
 
@@ -159,6 +222,86 @@ func _clamp_centre() -> void:
 		_centre.y = clampf(_centre.y, half.y, 1.0 - half.y)
 
 
+# ----------------------------------------------------------------- regions
+
+## True while a click would zoom rather than pin.
+func is_world_view() -> bool:
+	return _zoom < PIN_ZOOM
+
+
+## Which region contains this point, or -1. Where boxes overlap, the region
+## whose centre is nearest wins — which is what makes the Europe/Asia seam
+## behave the way a person expects.
+static func region_at(lat: float, lon: float) -> int:
+	var best := -1
+	var best_distance := INF
+	for i in REGIONS.size():
+		var region: Dictionary = REGIONS[i]
+		var lon_span: Vector2 = region["lon"]
+		var lat_span: Vector2 = region["lat"]
+		if lon < lon_span.x or lon > lon_span.y:
+			continue
+		if lat < lat_span.x or lat > lat_span.y:
+			continue
+		var centre := Vector2((lon_span.x + lon_span.y) * 0.5,
+			(lat_span.x + lat_span.y) * 0.5)
+		# Degrees of longitude are worth less than degrees of latitude this
+		# far from the equator, but for picking between two boxes it does not
+		# matter enough to bring trigonometry into it.
+		var distance := Vector2(lon, lat).distance_to(centre)
+		if distance < best_distance:
+			best_distance = distance
+			best = i
+	return best
+
+
+static func region_name(index: int) -> String:
+	if index < 0 or index >= REGIONS.size():
+		return ""
+	return String(REGIONS[index]["name"])
+
+
+## Put a lon/lat box in view, as large as it will go.
+func focus_on_box(lon_min: float, lat_min: float, lon_max: float,
+		lat_max: float) -> void:
+	var west := clampf(minf(lon_min, lon_max), -179.9, 179.9)
+	var east := clampf(maxf(lon_min, lon_max), -179.9, 179.9)
+	var south := clampf(minf(lat_min, lat_max), -89.9, 89.9)
+	var north := clampf(maxf(lat_min, lat_max), -89.9, 89.9)
+
+	var top_left := Geo.to_unit(north, west)
+	var bottom_right := Geo.to_unit(south, east)
+	var wanted := Vector2(
+		maxf(absf(bottom_right.x - top_left.x), 0.001),
+		maxf(absf(bottom_right.y - top_left.y), 0.001)) * FOCUS_MARGIN
+
+	# _view_span() is 1/zoom of the span at zoom 1, so the zoom that fits the
+	# box is the smaller of the two ratios.
+	_zoom = MIN_ZOOM
+	var span_at_one := _view_span()
+	var fits_both := minf(span_at_one.x / wanted.x, span_at_one.y / wanted.y)
+	_zoom = clampf(maxf(fits_both, MIN_FOCUS_ZOOM), MIN_ZOOM, MAX_ZOOM)
+	_centre = (top_left + bottom_right) * 0.5
+	_clamp_centre()
+	queue_redraw()
+
+
+func focus_on_region(index: int) -> void:
+	if index < 0 or index >= REGIONS.size():
+		return
+	var region: Dictionary = REGIONS[index]
+	var lon_span: Vector2 = region["lon"]
+	var lat_span: Vector2 = region["lat"]
+	focus_on_box(lon_span.x, lat_span.x, lon_span.y, lat_span.y)
+	CCLog.info("map", "zoomed to %s (x%.1f)" % [region["name"], _zoom])
+
+
+## Zoom to a window around a point — what a click on open water does.
+func focus_around(lat: float, lon: float) -> void:
+	var half := OPEN_WATER_SPAN * 0.5
+	focus_on_box(lon - half, lat - half * 0.6, lon + half, lat + half * 0.6)
+
+
 # ------------------------------------------------------------------ input
 
 func _gui_input(event: InputEvent) -> void:
@@ -180,9 +323,9 @@ func _handle_button(event: InputEventMouseButton) -> void:
 				_drag_from = event.position
 				_drag_centre = _centre
 			else:
-				# A press that did not travel is a pin, not a pan.
+				# A press that did not travel is a click, not a pan.
 				if _drag_from.distance_to(event.position) < 4.0:
-					_place_pin(event.position)
+					_click(event.position)
 				_dragging = false
 			accept_event()
 		MOUSE_BUTTON_WHEEL_UP:
@@ -199,6 +342,11 @@ func _handle_button(event: InputEventMouseButton) -> void:
 
 func _handle_motion(event: InputEventMouseMotion) -> void:
 	_hover_unit = pixel_to_unit(event.position)
+	if is_world_view():
+		var degrees := Geo.from_unit(_hover_unit)
+		_hover_region = region_at(degrees.x, degrees.y)
+	else:
+		_hover_region = -1
 	if _dragging:
 		var span := _view_span()
 		var moved := event.position - _drag_from
@@ -207,6 +355,20 @@ func _handle_motion(event: InputEventMouseMotion) -> void:
 			moved.y / maxf(size.y, 1.0) * span.y)
 		_clamp_centre()
 	queue_redraw()
+
+
+## Zoomed out, a click is navigation; zoomed in, it is the answer.
+func _click(pixel: Vector2) -> void:
+	if not is_world_view():
+		_place_pin(pixel)
+		return
+
+	var degrees := pixel_to_lat_lon(pixel)
+	var region := region_at(degrees.x, degrees.y)
+	if region >= 0:
+		focus_on_region(region)
+	else:
+		focus_around(degrees.x, degrees.y)
 
 
 func _place_pin(pixel: Vector2) -> void:
@@ -232,9 +394,13 @@ func _zoom_about(pixel: Vector2, factor: float) -> void:
 # ----------------------------------------------------------------- drawing
 
 func _draw() -> void:
+	if _back != null:
+		_back.visible = not is_world_view()
 	draw_rect(Rect2(Vector2.ZERO, size), COLOR_OCEAN, true)
 	_draw_graticule()
 	_draw_coastlines()
+	if is_world_view():
+		_draw_regions()
 	_draw_pin()
 	_draw_readout()
 	draw_rect(Rect2(Vector2.ZERO, size), Color(0.34, 0.37, 0.34), false, 1.0)
@@ -323,6 +489,35 @@ func _draw_no_data_notice() -> void:
 		HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(0.46, 0.50, 0.54))
 
 
+## The clickable regions, drawn only in the world view. Without them the first
+## click looks like it ought to pin and does not.
+func _draw_regions() -> void:
+	for i in REGIONS.size():
+		var region: Dictionary = REGIONS[i]
+		var lon_span: Vector2 = region["lon"]
+		var lat_span: Vector2 = region["lat"]
+		var top_left := unit_to_pixel(Geo.to_unit(lat_span.y, lon_span.x))
+		var bottom_right := unit_to_pixel(Geo.to_unit(lat_span.x, lon_span.y))
+		var box := Rect2(top_left, bottom_right - top_left).abs()
+
+		var hovered := i == _hover_region
+		var colour := COLOR_REGION_HOVER if hovered else COLOR_REGION
+		if hovered:
+			draw_rect(box, Color(colour.r, colour.g, colour.b, 0.10), true)
+		draw_rect(box, Color(colour.r, colour.g, colour.b,
+			0.95 if hovered else 0.55), false, 1.0)
+
+		if _font == null or box.size.x < 60.0:
+			continue
+		var label := String(region["name"])
+		var width := _font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT,
+			-1, 13).x
+		draw_string(_font, box.position + Vector2(
+			(box.size.x - width) * 0.5, box.size.y * 0.5 + 4.0), label,
+			HORIZONTAL_ALIGNMENT_LEFT, -1, 13,
+			Color(colour.r, colour.g, colour.b, 1.0 if hovered else 0.72))
+
+
 func _draw_pin() -> void:
 	if not _has_pin:
 		return
@@ -344,8 +539,15 @@ func _draw_readout() -> void:
 	if _hover_unit.x >= 0.0:
 		var hover := Geo.from_unit(_hover_unit)
 		lines.append(format_lat_lon(hover.x, hover.y))
-	if _zoom > 1.01:
-		lines.append("x%.1f" % _zoom)
+
+	# Say which click this is. The two-stage map is only obvious once.
+	if is_world_view():
+		if _hover_region >= 0:
+			lines.append("click to zoom to %s" % region_name(_hover_region))
+		else:
+			lines.append("click to zoom in")
+	else:
+		lines.append("x%.1f  ·  click to place your pin" % _zoom)
 	if lines.is_empty():
 		return
 

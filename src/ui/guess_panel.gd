@@ -100,21 +100,16 @@ func _collect_places() -> void:
 	_places.shuffle()
 
 
+## The dial's ends. The album decides: the author's own values if they set
+## any in the editor, otherwise a padded span around the photographs' dates
+## (Album.guess_year_range does the padding — without it the earliest and
+## latest photographs sit exactly at the ends and give themselves away).
 func _configure_year_range() -> void:
-	if album == null or album.photos.is_empty():
+	if album == null:
 		return
-	var lo := 9999
-	var hi := 0
-	for photo in album.photos:
-		if not photo.truth.date.is_set():
-			continue
-		lo = mini(lo, photo.truth.date.year)
-		hi = maxi(hi, photo.truth.date.year)
-	if lo > hi:
-		return
-	# Pad, so the true range is not inferable from the slider's ends.
-	_min_year = maxi(1826, (lo / 10) * 10 - 10)
-	_max_year = mini(2026, ((hi / 10) + 1) * 10 + 10)
+	var span := album.guess_year_range()
+	_min_year = span.x
+	_max_year = span.y
 
 
 # ----------------------------------------------------------------- build
@@ -176,7 +171,8 @@ func _build() -> void:
 	_map.pin_cleared.connect(_on_pin_cleared)
 	_map_box.add_child(_map)
 	_map_box.add_child(_label(
-		"click to place it · drag to move the map · wheel to zoom",
+		"click a continent to zoom in, then click again to place your pin"
+		+ " · drag to move · wheel to zoom",
 		14, Color(0.50, 0.47, 0.43)))
 
 	_list_box = VBoxContainer.new()

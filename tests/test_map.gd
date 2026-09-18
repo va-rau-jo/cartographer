@@ -37,6 +37,7 @@ func run() -> TestFramework:
 	_holder.name = "MapTestHolder"
 	(Engine.get_main_loop() as SceneTree).root.add_child(_holder)
 
+	_test_regions(t)
 	_test_coastline_parsing(t)
 	_test_simplify(t)
 	_test_projection(t)
@@ -49,6 +50,104 @@ func run() -> TestFramework:
 		_holder.free()
 		_holder = null
 	return t
+
+
+# ---------------------------------------------------------------- regions
+
+## The two-stage map: zoomed out a click navigates, zoomed in it answers.
+func _test_regions(t: TestFramework) -> void:
+	# Well-known places land in the region a person would name.
+	t.eq(MapWidget.region_name(MapWidget.region_at(48.8566, 2.3522)),
+		"Europe", "Paris is in Europe")
+	t.eq(MapWidget.region_name(MapWidget.region_at(35.0116, 135.7681)),
+		"Asia", "Kyoto is in Asia")
+	t.eq(MapWidget.region_name(MapWidget.region_at(-33.8688, 151.2093)),
+		"Oceania", "Sydney is in Oceania")
+	t.eq(MapWidget.region_name(MapWidget.region_at(-1.2921, 36.8219)),
+		"Africa", "Nairobi is in Africa")
+	t.eq(MapWidget.region_name(MapWidget.region_at(40.7128, -74.0060)),
+		"North America", "New York is in North America")
+	t.eq(MapWidget.region_name(MapWidget.region_at(-22.9068, -43.1729)),
+		"South America", "Rio is in South America")
+	t.eq(MapWidget.region_name(MapWidget.region_at(-77.8, 166.7)),
+		"Antarctica", "McMurdo is in Antarctica")
+
+	# The overlap that always needs a tie-break: Europe's box and Asia's box
+	# both cover Turkey and western Russia.
+	var istanbul := MapWidget.region_name(MapWidget.region_at(41.0, 29.0))
+	t.ok(istanbul == "Europe" or istanbul == "Asia",
+		"Istanbul resolves to one of its two regions (got %s)" % istanbul)
+
+	# Open ocean belongs to nobody.
+	t.eq(MapWidget.region_at(-30.0, -140.0), -1,
+		"the middle of the Pacific is in no region")
+
+	var map := _widget(800.0, 400.0)
+	t.ok(map.is_world_view(), "a fresh map is in world view")
+
+	# A click in world view zooms instead of pinning.
+	var paris := map.unit_to_pixel(Geo.to_unit(48.8566, 2.3522))
+	map._click(paris)
+	t.ok(not map.has_pin(), "the first click does not place a pin")
+	t.gt(map.zoom(), 1.5, "it zooms in (x%.1f)" % map.zoom())
+	t.ok(not map.is_world_view(), "so the next click will pin")
+
+	# And Europe is what is now on screen.
+	var middle: Vector2 = map.pixel_to_lat_lon(Vector2(400.0, 200.0))
+	t.eq(MapWidget.region_name(MapWidget.region_at(middle.x, middle.y)),
+		"Europe", "the view is centred on Europe (%.1f, %.1f)"
+			% [middle.x, middle.y])
+
+	# The second click is the answer, and it is exact.
+	map._click(Vector2(410.0, 190.0))
+	t.ok(map.has_pin(), "the second click places the pin")
+	var expected := map.pixel_to_lat_lon(Vector2(410.0, 190.0))
+	var pin := map.pin_lat_lon()
+	t.close(pin.x, expected.x, 0.01, "at exactly the pixel clicked (lat)")
+	t.close(pin.y, expected.y, 0.01, "and lon")
+
+	# Zoomed in, a pin this close to the truth must still score as a hit: the
+	# whole reason for the two stages is that the world view cannot do this.
+	var km := Geo.haversine_km(pin.x, pin.y, expected.x, expected.y)
+	t.lt(km, 1.0, "with no measurable error")
+
+	map.reset_view()
+	t.ok(map.is_world_view(), "back to the world, and back to navigating")
+	t.ok(map.has_pin(), "without losing the pin she already placed")
+
+	# Open water still zooms — "click to zoom in" has to mean something
+	# everywhere, or the map feels broken over the Pacific.
+	map.reset_view()
+	var pacific := map.unit_to_pixel(Geo.to_unit(-30.0, -140.0))
+	map._click(pacific)
+	t.gt(map.zoom(), 1.5, "a click on open water zooms too")
+	var water: Vector2 = map.pixel_to_lat_lon(Vector2(400.0, 200.0))
+	t.close(water.x, -30.0, 6.0, "centred near where she clicked (lat)")
+	t.close(water.y, -140.0, 12.0, "and lon")
+
+	# Focusing on a box is bounded: a tiny box must not zoom past the limit.
+	map.focus_on_box(2.0, 48.0, 2.1, 48.1)
+	t.lt(map.zoom(), MapWidget.MAX_ZOOM + 0.01, "a tiny box clamps to max zoom")
+	t.gt(map.zoom(), 1.0, "and does zoom")
+
+	# Antarctica spans the whole width, including the antimeridian.
+	map.reset_view()
+	map.focus_on_region(6)
+	t.gt(map.zoom(), MapWidget.PIN_ZOOM,
+		"Antarctica zooms in despite spanning every longitude (x%.1f)"
+			% map.zoom())
+	t.lt(map.zoom(), MapWidget.MAX_ZOOM, "without going to full zoom")
+	t.ok(not map.is_world_view(), "so a click there pins rather than zooming")
+	# Not "centred on Antarctica": at this zoom the visible band of latitude is
+	# wide enough that centring on -73 would show the view running off the
+	# bottom of the world, and _clamp_centre correctly refuses. What has to be
+	# true is that the continent is on screen.
+	var bottom: Vector2 = map.pixel_to_lat_lon(Vector2(400.0, 399.0))
+	t.lt(bottom.x, -62.0, "and Antarctica is in view (bottom edge %.1f)"
+		% bottom.x)
+
+	map.get_parent().remove_child(map)
+	map.free()
 
 
 # ------------------------------------------------------------------- data

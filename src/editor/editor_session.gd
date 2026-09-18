@@ -36,6 +36,8 @@ class Slot extends RefCounted:
 	var exif_date: AlbumSchema.PhotoDate = null
 	var exif_lat := NAN
 	var exif_lon := NAN
+	## True when a Google sidecar contributed something to this slot.
+	var from_sidecar := false
 
 	func has_exif_location() -> bool:
 		return not (is_nan(exif_lat) or is_nan(exif_lon))
@@ -54,6 +56,11 @@ var slots: Array[Slot] = []
 ## decode. Kept as Platform.PickedFile so a thousand-file folder stays lazy.
 var sources: Array = []
 
+## Set instead of `sources` when the author handed us a zip — a Google Photos
+## download or a Takeout export. Its entries carry the sidecar metadata, and
+## bytes come from the zip rather than from Platform.
+var archive: PhotoArchive = null
+
 var _next_id := 1
 
 
@@ -67,6 +74,7 @@ func _init() -> void:
 ## shown and then failing later, and the rest is sorted by name so the order
 ## matches what the author sees in their own file browser.
 func set_sources(files: Array) -> int:
+	_close_archive()
 	sources = []
 	for file in files:
 		var picked: Platform.PickedFile = file
@@ -79,7 +87,70 @@ func set_sources(files: Array) -> int:
 
 
 func source_count() -> int:
+	if archive != null:
+		return archive.count()
 	return sources.size()
+
+
+## Take a zip of photographs as the source. Replaces any folder listing.
+## Returns "" on success.
+func set_archive(new_archive: PhotoArchive) -> String:
+	if new_archive == null:
+		return "no archive"
+	if not new_archive.is_ok():
+		var why := "there are no photographs in that zip"
+		if not new_archive.problems.is_empty():
+			why = new_archive.problems[0]
+		new_archive.close()
+		return why
+
+	_close_archive()
+	sources = []
+	archive = new_archive
+	changed.emit()
+	return ""
+
+
+func _close_archive() -> void:
+	if archive != null:
+		archive.close()
+		archive = null
+
+
+## One row of the source list, whichever kind of source is loaded: the name,
+## the size, and what its metadata already knows.
+func source_label(index: int) -> String:
+	if archive != null:
+		if index < 0 or index >= archive.count():
+			return ""
+		var entry := archive.entries()[index]
+		var notes: PackedStringArray = PackedStringArray()
+		if entry.has_date():
+			notes.append(entry.date.label())
+		if entry.has_location():
+			notes.append("located")
+		if notes.is_empty():
+			return entry.name
+		return "%s   (%s)" % [entry.name, ", ".join(notes)]
+
+	if index < 0 or index >= sources.size():
+		return ""
+	var picked: Platform.PickedFile = sources[index]
+	var kb := picked.size / 1024
+	if kb >= 1024:
+		return "%s   %.1f MB" % [picked.name, float(kb) / 1024.0]
+	return "%s   %d KB" % [picked.name, kb]
+
+
+## The name of source `index`, for status messages.
+func source_name(index: int) -> String:
+	if archive != null:
+		if index < 0 or index >= archive.count():
+			return ""
+		return archive.entries()[index].name
+	if index < 0 or index >= sources.size():
+		return ""
+	return (sources[index] as Platform.PickedFile).name
 
 
 # -------------------------------------------------------------------- slots
@@ -98,9 +169,28 @@ func slot_at(index: int) -> Slot:
 	return slots[index]
 
 
-## Decode a chosen file and add it as the next photograph.
+## Add source `index`, reading its bytes from the zip. Folder sources are read
+## through Platform by the screen (it can await); this cannot, and does not
+## need to.
+func add_from_archive(index: int) -> String:
+	if archive == null:
+		return "no archive is loaded"
+	if index < 0 or index >= archive.count():
+		return "no such photograph"
+
+	var entry := archive.entries()[index]
+	var bytes := archive.read_image(entry)
+	if bytes.is_empty():
+		return "could not read %s out of the zip" % entry.name
+	return add_photo(entry.name, bytes, entry)
+
+
+## Decode a chosen file and add it as the next photograph. `from_archive`, when
+## given, is the zip entry it came from, whose sidecar fills in anything the
+## image's own EXIF did not carry.
 ## Returns "" on success, or a message to show the author.
-func add_photo(filename: String, bytes: PackedByteArray) -> String:
+func add_photo(filename: String, bytes: PackedByteArray,
+		from_archive: PhotoArchive.Entry = null) -> String:
 	if is_full():
 		return "This album already has %d photographs." % MAX_PHOTOS
 
@@ -130,6 +220,8 @@ func add_photo(filename: String, bytes: PackedByteArray) -> String:
 	slot.exif_lon = processed.exif_lon
 
 	_prefill_from_exif(slot)
+	if from_archive != null:
+		_prefill_from_sidecar(slot, from_archive)
 
 	slots.append(slot)
 	album.photos.append(photo)
@@ -158,6 +250,33 @@ func _prefill_from_exif(slot: Slot) -> void:
 	if slot.has_exif_location():
 		slot.photo.truth.lat = slot.exif_lat
 		slot.photo.truth.lon = slot.exif_lon
+
+
+## What Google knew about the photograph, for anything EXIF did not say. EXIF
+## wins where both have an answer: it is the camera's own record, while a
+## sidecar's location may have been typed in by whoever uploaded it.
+##
+## The description is the exception — it is the only place a caption can come
+## from, and it is what his hints are drawn from, so it is always taken.
+func _prefill_from_sidecar(slot: Slot, entry: PhotoArchive.Entry) -> void:
+	if not entry.had_sidecar:
+		return
+
+	slot.from_sidecar = true
+
+	if not entry.description.is_empty():
+		slot.photo.content.description = entry.description
+	if not entry.people.is_empty():
+		slot.photo.content.people = entry.people
+
+	if not slot.photo.truth.date.is_set() and entry.has_date():
+		slot.photo.truth.date = entry.date
+		slot.photo.truth.date_precision = AlbumSchema.DatePrecision.DAY \
+			if entry.date.day > 0 else AlbumSchema.DatePrecision.MONTH
+
+	if not slot.photo.truth.has_location() and entry.has_location():
+		slot.photo.truth.lat = entry.lat
+		slot.photo.truth.lon = entry.lon
 
 
 func remove_slot(index: int) -> void:

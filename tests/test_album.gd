@@ -10,6 +10,7 @@ static func run() -> TestFramework:
 	_test_image_pipeline(t)
 	_test_pack_and_load(t)
 	_test_hint_fallback(t)
+	_test_guess_year_range(t)
 
 	return t
 
@@ -540,3 +541,64 @@ static func _jpeg_with_orientation(img: Image, orientation: int) -> PackedByteAr
 	# Append the original JPEG minus its own SOI marker.
 	out.append_array(jpg.slice(2))
 	return out
+
+
+## The calendar dial's ends. Plan §7.3: the author may set them, and when they
+## do not, the album pads its own range — because a dial whose ends are the
+## earliest and latest photographs hands her two of the ten answers.
+static func _test_guess_year_range(t: TestFramework) -> void:
+	var album := AlbumSchema.Album.create_empty("Dial")
+	for year in [1961, 1974, 2003]:
+		var photo := AlbumSchema.Photo.new()
+		photo.id = "p_%d" % year
+		photo.truth.date.year = year
+		album.photos.append(photo)
+
+	var auto := album.guess_year_range()
+	t.lt(float(auto.x), 1961.0, "the dial starts before the earliest photograph")
+	t.gt(float(auto.y), 2003.0, "and ends after the latest")
+	t.gt(float(auto.x), 1900.0, "but not absurdly early (%d)" % auto.x)
+	t.lt(float(auto.y), 2050.0, "or absurdly late (%d)" % auto.y)
+
+	# The author's own ends win.
+	album.guess_year_min = 1940
+	album.guess_year_max = 2010
+	var explicit := album.guess_year_range()
+	t.eq(explicit.x, 1940, "an author's own start is used as given")
+	t.eq(explicit.y, 2010, "and their own end")
+
+	# One end set, one left to the photographs.
+	album.guess_year_max = 0
+	var half := album.guess_year_range()
+	t.eq(half.x, 1940, "a start on its own is still honoured")
+	t.gt(float(half.y), 2003.0, "and the end is worked out")
+
+	# Nonsense is corrected rather than obeyed.
+	album.guess_year_min = 2000
+	album.guess_year_max = 1900
+	var swapped := album.guess_year_range()
+	t.gt(float(swapped.y), float(swapped.x), "an inverted range is fixed")
+	album.guess_year_min = 1200
+	album.guess_year_max = 3000
+	var clamped := album.guess_year_range()
+	t.gt(float(clamped.x), 1825.0, "a start before photography is clamped")
+	t.lt(float(clamped.y), 2101.0, "and an end past the plausible")
+
+	# An album with no dates at all still gives a usable dial.
+	var undated := AlbumSchema.Album.create_empty("Undated")
+	var blank := AlbumSchema.Photo.new()
+	blank.id = "p_blank"
+	undated.photos.append(blank)
+	var fallback := undated.guess_year_range()
+	t.gt(float(fallback.y), float(fallback.x) + 20.0,
+		"an undated album still spans a lifetime (%d..%d)"
+			% [fallback.x, fallback.y])
+
+	# And it survives a save and load, like every other field.
+	album.guess_year_min = 1955
+	album.guess_year_max = 2015
+	var back := AlbumSchema.Album.from_dict(album.to_dict())
+	t.eq(back.guess_year_min, 1955, "the dial's start round-trips")
+	t.eq(back.guess_year_max, 2015, "and its end")
+	var bare := AlbumSchema.Album.from_dict({"schemaVersion": 1})
+	t.eq(bare.guess_year_min, 0, "a manifest without them defaults to auto")

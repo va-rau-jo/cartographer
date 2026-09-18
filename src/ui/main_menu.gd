@@ -110,8 +110,14 @@ func _spacer(height: int) -> Control:
 
 # --- actions ---
 
+## The button is NOT disabled while the dialog is open. A cancelled native
+## dialog does not always report itself, and a disabled button with nothing to
+## re-enable it is unusable for the rest of the session — which is exactly
+## what happened. Platform refuses a second pick on its own.
 func _on_load_pressed() -> void:
-	_load_button.disabled = true
+	if Platform.is_picking():
+		_set_status("[color=gray]There is already a file dialog open.[/color]")
+		return
 	_set_status("[color=gray]Choose a .ccalbum file…[/color]")
 	Platform.pick_album_file()
 
@@ -150,7 +156,6 @@ func _on_quit_pressed() -> void:
 # --- platform / album callbacks ---
 
 func _on_files_picked(files: Array) -> void:
-	_load_button.disabled = false
 	if files.is_empty():
 		return
 
@@ -166,7 +171,6 @@ func _on_files_picked(files: Array) -> void:
 
 
 func _on_pick_cancelled() -> void:
-	_load_button.disabled = false
 	_set_status("")
 
 
