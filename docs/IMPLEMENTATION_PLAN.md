@@ -864,3 +864,58 @@ nine, so the last notch of a dial ending in 2026 could be answered as 2029. And
 the slider configuration was sitting after an early return in `_populate()`, so
 walking the gallery with no album loaded left the decade slider on `Range`'s
 default 0..100 and the dial could read 2900.
+
+### 16.15 What a bug hunt found, and the three shapes it kept finding
+
+A deliberate pass over the whole codebase looking for defects rather than
+features turned up twenty-eight. They are listed in the commit; what is worth
+keeping here is that almost all of them were one of three shapes.
+
+**A read that was secretly a write.** `MapWidget.set_pin_lat_lon` emitted
+`pin_moved`. The editor calls it to SHOW where a photograph already is; that
+emission ran the editor's own pin handler, and the handler wrote the pin's
+unit-space round trip back over the author's coordinates. Merely clicking a
+photograph in the list changed its latitude, and typing an exact coordinate
+saved a slightly different one. `EditorSession.adopt` had the same shape one
+level up: it took the album by reference, so editing a loaded album mutated
+what the preview and the gallery were playing. A setter that reports itself,
+and a model handed out by reference, are the same bug.
+
+**A cap or an index that did not match the data behind it.** The hint cap was
+a hardcoded 3 while `ScoringConfig.hint_cost` returns 0.0 past the end of the
+list, so an album with two costs granted a third hint — the one that names the
+answer — for nothing, advertised as free. The blur ladder was built by
+appending only the tiers that decoded, while `tier_texture` indexes it by
+tier, so one bad tier handed her a sharper image than she had paid for.
+`from_dict` read nested objects with `Dictionary.get(key, {})`, which returns
+the stored `null` when the key exists. Whenever one number describes another
+structure, the two drift.
+
+**Something that only a picture would show.** `_round_rect` cleared its top
+corners unconditionally, and since `_extrude` fills the whole depth, her bun —
+drawn over her hair — punched two holes clean through the back of her head.
+The embrace shaded both figures from one split that fell between them, so he
+had no base tones at all. Her arms in it ran as two bands across his chest.
+Nothing called `update_view_for_camera` on a figure that merely stands
+somewhere, so the one in the hospital rendered as a sliver and the one down the
+hall showed the back of its own slab. The hall's normals were smoothed across
+every box corner, so no flat face kept its true normal.
+
+Two notes on method. First, `tools/draw_embrace.gd` and
+`tools/draw_canvases.gd` render the drawn figures FLAT, one pixel per canvas
+pixel — the 3D renders had hidden all four drawing bugs above, and the flat
+ones showed them immediately. §16.11 said look at it; this says look at it in
+the space it was authored in.
+
+Second, two existing tests asserted the old behaviour and had to be changed:
+the cancel test asserted `GALLERY_IDLE` and then quietly put `_nearby` back by
+hand before re-opening, which is exactly what hid the dead E key; and the pin
+test asserted that a programmatic pin "says so once". A test that documents a
+bug is worse than no test, because it makes the bug look intentional. Both now
+say why they changed.
+
+And one assertion worth copying elsewhere: `tests/test_editor_screen.gd`
+checks that nothing in the detail column has a combined minimum width greater
+than the column will ever have. It needs no window and no frame, it found two
+offenders the moment it was written, and it is the kind of invariant a UI built
+in code can actually be held to.
