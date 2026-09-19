@@ -40,7 +40,6 @@ var _swatch_box: VBoxContainer = null
 var _name_field: LineEdit = null
 var _role_buttons: Dictionary = {}     ## Role -> Button
 var _build_buttons: Dictionary = {}    ## PixelFigure.Build -> Button
-var _who_note: Label = null
 var _hint: Label = null
 
 
@@ -183,9 +182,6 @@ func _build_controls() -> Control:
 		_role_buttons[role] = button
 		role_row.add_child(button)
 
-	_who_note = _small("")
-	rows.add_child(_who_note)
-
 	# 2. The name.
 	rows.add_child(_section("Name"))
 	_name_field = LineEdit.new()
@@ -308,10 +304,6 @@ func _refresh_buttons() -> void:
 		button.text = "%s%s" % ["✓  " if current else "    ",
 			"Trousers" if kind == PixelFigure.Build.TROUSERS else "Skirt"]
 		button.disabled = current
-
-	if _who_note != null:
-		_who_note.text = "%s walks the hall. %s waits at the end of it." \
-			% [cast.main_name(), cast.side_name()]
 
 	if _name_field != null:
 		_name_field.placeholder_text = CastProfile.DEFAULT_MAIN_NAME \
