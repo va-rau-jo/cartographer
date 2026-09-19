@@ -29,6 +29,8 @@ func run() -> TestFramework:
 
 	var screen := _open()
 
+	_test_tabs(t, screen)
+	_test_characters(t, screen)
 	_test_dial_starts_sensible(t, screen)
 	_test_date_fields_fit(t, screen)
 	_test_setting_a_missing_date(t, screen)
@@ -243,3 +245,88 @@ func _test_date_note(t: TestFramework, screen: Control) -> void:
 	screen._read_photo_fields()
 	t.ok(screen._date_note.text.contains("scanned"),
 		"a date from Google's export is flagged (%s)" % screen._date_note.text)
+
+# ---------------------------------------------------------------- the tabs
+
+## Three steps, in order, and each one leads to the next.
+func _test_tabs(t: TestFramework, screen: Control) -> void:
+	var tabs: TabContainer = screen._tabs
+	t.ok(tabs != null, "the screen is a set of tabs")
+	t.eq(tabs.get_tab_count(), 3, "three of them")
+	t.ok(tabs.get_tab_title(0).contains("General"), "General is first (%s)"
+		% tabs.get_tab_title(0))
+	t.ok(tabs.get_tab_title(1).contains("Photograph"),
+		"then the photographs (%s)" % tabs.get_tab_title(1))
+	t.ok(tabs.get_tab_title(2).contains("Save"), "then saving (%s)"
+		% tabs.get_tab_title(2))
+	t.eq(tabs.current_tab, 0, "and it opens on the first")
+
+	# The characters are on the General tab, not on a screen of their own.
+	t.ok(screen._cast_editor != null, "the characters are edited here")
+	t.ok(screen._cast_editor.is_inside_tree(), "and are on screen")
+	var general := tabs.get_child(0)
+	t.ok(general.is_ancestor_of(screen._cast_editor),
+		"on the General tab specifically")
+	t.ok(general.is_ancestor_of(screen._title),
+		"along with the title")
+	t.ok(general.is_ancestor_of(screen._guess_from),
+		"and the calendar range")
+
+	# The photographs are on the second, and nothing about them is on the
+	# first: that was the whole complaint.
+	var photos := tabs.get_child(1)
+	t.ok(photos.is_ancestor_of(screen._detail),
+		"the photograph's own fields are on the Photographs tab")
+	t.ok(photos.is_ancestor_of(screen._wall_list), "with the wall")
+	t.ok(photos.is_ancestor_of(screen._source_list), "and the source folder")
+	t.ok(not general.is_ancestor_of(screen._detail),
+		"and not on the General tab")
+
+	# Saving is the third, with what is left to do beside the button.
+	var review := tabs.get_child(2)
+	t.ok(review.is_ancestor_of(screen._export_button),
+		"the save button is on the Save tab")
+	t.ok(review.is_ancestor_of(screen._problem_text),
+		"next to what is still missing")
+
+
+## The characters live in the file, so what the author sets here is what the
+## person it is made for meets — not whatever their own machine has saved.
+func _test_characters(t: TestFramework, screen: Control) -> void:
+	var editor: CastEditor = screen._cast_editor
+	t.ok(editor.cast != null, "there are two characters to edit")
+	t.eq(editor.cast.main_name(), "Victor", "Victor is the main one by default")
+	t.eq(editor.cast.side_name(), "Chelsea", "and Chelsea the side one")
+
+	# Editing them writes them into the file being built.
+	editor.cast.main.display_name = "Tom"
+	editor._on_name_changed("Tom")
+	t.ok(screen.session.album.has_cast(),
+		"a change puts the characters into the settings")
+	t.eq(CastProfile.for_album(screen.session.album).main_name(), "Tom",
+		"with the name that was typed")
+
+	# And the names the lines are written with follow them, rather than being
+	# typed a second time in two fields of their own.
+	t.eq(screen.session.album.curator_player_name, "Tom",
+		"the main character names themselves")
+	t.eq(screen.session.album.curator_voice_name, "Chelsea",
+		"and so does the side one")
+
+	# Swapping is the one control here that changes the game.
+	editor._on_swap()
+	t.eq(CastProfile.for_album(screen.session.album).main_name(), "Chelsea",
+		"swapping puts the other one in front")
+	t.eq(screen.session.album.curator_player_name, "Chelsea",
+		"and the lines follow")
+	editor._on_swap()
+	t.eq(editor.cast.main_name(), "Tom", "and back again")
+
+	# A build is a look: either character can have either.
+	editor._select(CastProfile.Role.MAIN)
+	editor._set_build(PixelFigure.Build.SKIRT)
+	t.eq(editor.cast.main.form, PixelFigure.Build.SKIRT,
+		"the main character can be put in a skirt")
+	t.eq(CastProfile.for_album(screen.session.album).main.form,
+		PixelFigure.Build.SKIRT, "and it is written to the file")
+	editor._set_build(PixelFigure.Build.TROUSERS)

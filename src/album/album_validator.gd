@@ -75,10 +75,10 @@ static func _check_album_level(album: AlbumSchema.Album, for_export: bool,
 		out: Array[Problem]) -> void:
 	if album.schema_version <= 0:
 		out.append(Problem.new(Severity.ERROR, "schemaVersion",
-			"missing; cannot tell which format this album is"))
+			"missing; cannot tell which format this file is"))
 	elif album.schema_version > AlbumSchema.SCHEMA_VERSION:
 		out.append(Problem.new(Severity.ERROR, "schemaVersion",
-			"album is version %d but this build understands up to %d — update the game"
+			"this file is version %d but this build understands up to %d — update the game"
 			% [album.schema_version, AlbumSchema.SCHEMA_VERSION]))
 
 	if album.album_id.is_empty():
@@ -109,7 +109,7 @@ static func _check_album_level(album: AlbumSchema.Album, for_export: bool,
 
 	if for_export and album.photos.size() != AlbumSchema.PHOTOS_PER_ALBUM:
 		out.append(Problem.new(Severity.ERROR, "photos",
-			"an album is exactly %d photos; this one has %d"
+			"exactly %d photographs are needed; this has %d"
 			% [AlbumSchema.PHOTOS_PER_ALBUM, album.photos.size()]))
 
 	if album.photos.is_empty():
@@ -117,7 +117,7 @@ static func _check_album_level(album: AlbumSchema.Album, for_export: bool,
 
 	if not album.cover_photo_id.is_empty() and album.photo_by_id(album.cover_photo_id) == null:
 		out.append(Problem.new(Severity.WARNING, "coverPhotoId",
-			"points at '%s', which is not in this album" % album.cover_photo_id))
+			"points at '%s', which is not in this file" % album.cover_photo_id))
 
 
 static func _check_photos(album: AlbumSchema.Album, for_export: bool,

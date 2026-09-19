@@ -47,8 +47,8 @@ var _fade: SceneFade = null
 var _window_light: OmniLight3D = null
 var _window_pane: MeshInstance3D = null
 var _her: PixelFigure = null
-## Who is in the bed and who is standing beside it. The dying one is whoever
-## the player is NOT: the player has come into their mind, so they cannot also
+## Who is in the bed and who is standing beside it. The dying one is the SIDE
+## character: the main character has come into their mind, so they cannot also
 ## be the one lying there.
 var _cast: CastProfile = null
 var _prompt: Label = null
@@ -60,7 +60,7 @@ var _env: Environment = null
 func _ready() -> void:
 	GameState.phase = GameState.Phase.HOSPITAL
 
-	_cast = CastProfile.load_saved()
+	_cast = CastProfile.for_album(AlbumService.album())
 
 	_build_environment()
 	_build_room()
@@ -350,14 +350,14 @@ func _build_furniture() -> void:
 ## default cast, so this scene still builds with no saved profile at all.
 func _dying() -> FigureProfile:
 	if _cast == null:
-		_cast = CastProfile.load_saved()
-	return _cast.companion_figure()
+		_cast = CastProfile.for_album(AlbumService.album())
+	return _cast.side_figure()
 
 
 func _standing() -> FigureProfile:
 	if _cast == null:
-		_cast = CastProfile.load_saved()
-	return _cast.player_figure()
+		_cast = CastProfile.for_album(AlbumService.album())
+	return _cast.main_figure()
 
 
 func _build_figures() -> void:

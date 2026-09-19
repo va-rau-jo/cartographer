@@ -35,15 +35,15 @@ const EYE := 5
 
 var _canvas: PackedByteArray = PackedByteArray()
 var _mesh: MeshInstance3D = null
-var form: PixelFigure.Form = PixelFigure.Form.MAN
+var form: PixelFigure.Build = PixelFigure.Build.TROUSERS
 
 
 ## `palette` supplies the skin and hair; everything else is derived. `new_form`
 ## of -1 keeps whichever build this head already is.
 func build(palette: PixelFigure.Palette = null, new_form: int = -1) -> void:
-	var p := palette if palette != null else PixelFigure.Palette.husband()
+	var p := palette if palette != null else PixelFigure.Palette.for_trousers()
 	if new_form >= 0:
-		form = new_form as PixelFigure.Form
+		form = new_form as PixelFigure.Build
 
 	var colours: Array = [
 		Color.TRANSPARENT,
@@ -113,7 +113,7 @@ func _draw() -> PackedByteArray:
 	# Hair spread on the pillow, for her: a row wider on each side and further
 	# down toward the shoulders. On a pillow seen from above that spread is the
 	# whole difference between the two of them.
-	if form == PixelFigure.Form.WOMAN:
+	if form == PixelFigure.Build.SKIRT:
 		_rect(c, 1, 3, 13, 18, HAIR)
 		_rect(c, 0, 6, 14, 15, HAIR_SHADE)
 

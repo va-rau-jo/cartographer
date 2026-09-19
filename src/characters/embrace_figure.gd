@@ -10,7 +10,8 @@ extends Node3D
 ## shadows and turns to camera the same way and nothing else in the scene has to
 ## know it is a special case.
 ##
-## Both palettes live in one colour table: hers at indices 1..11 and his at
+## Both palettes live in one colour table: the left figure's at indices 1..11
+## and the right figure's at
 ## 12..22, which is why the drawing code takes a `Tones` rather than reading
 ## module constants.
 ##
@@ -28,8 +29,8 @@ const EMPTY := 0
 const EDGE := 23
 
 ## Index of the first entry of each person's block.
-const HER_BASE := 1
-const HIS_BASE := 12
+const LEFT_BASE := 1
+const RIGHT_BASE := 12
 
 ## Offsets within a person's block, in the order Palette.to_array() writes them.
 const OFF_SKIN := 0
@@ -84,27 +85,31 @@ class Tones extends RefCounted:
 
 ## Where each of them stands on the canvas. They overlap in the middle; that
 ## overlap is the whole point of the drawing.
-const HER_X := 20
-const HIS_X := 36
+const LEFT_X := 20
+const RIGHT_X := 36
 
 var _body: Node3D = null
 var _mesh: MeshInstance3D = null
 var _canvas: PackedByteArray = PackedByteArray()
 
 
-func build(her: PixelFigure.Palette = null, his: PixelFigure.Palette = null) -> void:
-	var her_palette := her if her != null else PixelFigure.Palette.new()
-	var his_palette := his if his != null else PixelFigure.Palette.husband()
+## `left` dresses the shorter skirted figure and `right` the taller trousered
+## one. WHICH character each is comes from the cast's builds, not from who the
+## player is — see CastProfile.skirt_figure.
+func build(left: PixelFigure.Palette = null,
+		right: PixelFigure.Palette = null) -> void:
+	var left_palette := left if left != null else PixelFigure.Palette.new()
+	var right_palette := right if right != null else PixelFigure.Palette.for_trousers()
 
 	var colours: Array = [Color.TRANSPARENT]
 	# to_array() writes [transparent, skin, skin_shade, ... , edge, eye]; drop
 	# its leading transparent and append the eleven real tones.
-	var her_tones: Array = her_palette.to_array()
-	var his_tones: Array = his_palette.to_array()
-	for i in range(1, her_tones.size()):
-		colours.append(her_tones[i])
-	for i in range(1, his_tones.size()):
-		colours.append(his_tones[i])
+	var left_tones: Array = left_palette.to_array()
+	var right_tones: Array = right_palette.to_array()
+	for i in range(1, left_tones.size()):
+		colours.append(left_tones[i])
+	for i in range(1, right_tones.size()):
+		colours.append(right_tones[i])
 	# The contact edge, darker than either of them.
 	colours.append(Color(0.10, 0.085, 0.08))
 
@@ -184,12 +189,13 @@ func _extrude(canvas: PackedByteArray) -> VoxelGrid:
 	return g
 
 
-## The pose, drawn back to front: him first (he is the far figure), then her in
+## The pose, drawn back to front: the right figure first (it stands behind),
+## then the left one in
 ## front of him, then the arms that cross over both.
 func _draw() -> PackedByteArray:
 	var c := _new_canvas()
-	var her := Tones.at(HER_BASE)
-	var his := Tones.at(HIS_BASE)
+	var left := Tones.at(LEFT_BASE)
+	var right := Tones.at(RIGHT_BASE)
 
 	# Layer order is the pose. His arms go on before she does, so her body
 	# covers them the way a real embrace hides them; only the hand that comes
@@ -202,27 +208,27 @@ func _draw() -> PackedByteArray:
 	# two of them and, later, her hand on his far side. Drawn last, like her
 	# other arm, it was a navy band straight across his chest — the same
 	# "sash" mistake his own arms made over her, and fixed the same way.
-	_draw_her_waist_arm(c, her)
-	_draw_him(c, his)
-	_draw_his_arms(c, his)
-	_draw_her(c, her)
-	_draw_his_hands(c, his)
-	_draw_her_shoulder_arm(c, her)
+	_draw_left_waist_arm(c, left)
+	_draw_right(c, right)
+	_draw_right_arms(c, right)
+	_draw_left(c, left)
+	_draw_right_hands(c, right)
+	_draw_left_shoulder_arm(c, left)
 
 	# Light from the left, PER PERSON — each split two pixels right of that
 	# figure's own centre. One shared split at 26 put the line between them
 	# rather than down each of them: he stands at x 28..44, so all of him fell
 	# in his shade tones (his hair base and cloth base had literally zero
 	# pixels) and almost none of her did. In the last shot of the game.
-	_shade_right(c, HER_X + 2, her.shade_map())
-	_shade_right(c, HIS_X + 2, his.shade_map())
-	_ground_contact(c, [her.shoe, his.shoe])
+	_shade_right(c, LEFT_X + 2, left.shade_map())
+	_shade_right(c, RIGHT_X + 2, right.shade_map())
+	_ground_contact(c, [left.shoe, right.shoe])
 	return c
 
 
 ## He is taller, stands a little behind, and his head tilts down toward her.
-func _draw_him(c: PackedByteArray, t: Tones) -> void:
-	var cx := HIS_X
+func _draw_right(c: PackedByteArray, t: Tones) -> void:
+	var cx := RIGHT_X
 
 	# Feet, turned in toward her.
 	_rect(c, cx - 5, 0, cx + 3, 2, t.shoe)
@@ -238,8 +244,8 @@ func _draw_him(c: PackedByteArray, t: Tones) -> void:
 
 
 ## She is in front and a little shorter, her head against his shoulder.
-func _draw_her(c: PackedByteArray, t: Tones) -> void:
-	var cx := HER_X
+func _draw_left(c: PackedByteArray, t: Tones) -> void:
+	var cx := LEFT_X
 
 	_rect(c, cx - 3, 0, cx + 5, 2, t.shoe)
 
@@ -250,13 +256,13 @@ func _draw_her(c: PackedByteArray, t: Tones) -> void:
 
 	# Neck and head, tipped toward him.
 	_rect(c, cx + 1, 40, cx + 3, 43, t.skin)
-	_draw_her_head(c, cx + 2, 42, t)
+	_draw_left_head(c, cx + 2, 42, t)
 
 
 ## Her head, seen from the front but tipped: the eyes are closed, which is the
 ## single detail that makes this read as an embrace rather than two people
 ## standing very close.
-func _draw_her_head(c: PackedByteArray, cx: int, base_y: int, t: Tones) -> void:
+func _draw_left_head(c: PackedByteArray, cx: int, base_y: int, t: Tones) -> void:
 	_round_rect(c, cx - 4, base_y, cx + 4, base_y + 10, t.skin)
 	_round_rect(c, cx - 5, base_y + 6, cx + 5, base_y + 10, t.hair)
 	_rect(c, cx - 5, base_y + 4, cx - 4, base_y + 8, t.hair)
@@ -299,11 +305,11 @@ func _draw_closed_eyes(c: PackedByteArray, cx: int, base_y: int,
 
 ## His arms, which go around her and are therefore mostly hidden: only the
 ## stretch between his shoulder and her silhouette is ever seen.
-func _draw_his_arms(c: PackedByteArray, t: Tones) -> void:
+func _draw_right_arms(c: PackedByteArray, t: Tones) -> void:
 	# Upper arm, from his shoulder down toward her back.
-	_slope(c, HIS_X - 6, 39, HER_X + 2, 34, 3, t.wrap)
+	_slope(c, RIGHT_X - 6, 39, LEFT_X + 2, 34, 3, t.wrap)
 	# Lower arm, around her waist.
-	_slope(c, HIS_X - 5, 33, HER_X + 1, 29, 3, t.wrap_shade)
+	_slope(c, RIGHT_X - 5, 33, LEFT_X + 1, 29, 3, t.wrap_shade)
 
 
 ## The hands of his that come round her far side. Drawn after her, because a
@@ -313,13 +319,13 @@ func _draw_his_arms(c: PackedByteArray, t: Tones) -> void:
 ## these heights and these were drawn at 10..13, entirely clear of her — so
 ## instead of hands gripping her they were two skin-coloured blobs floating in
 ## the air beside her, which is what the flat render showed.
-func _draw_his_hands(c: PackedByteArray, t: Tones) -> void:
+func _draw_right_hands(c: PackedByteArray, t: Tones) -> void:
 	# On her far shoulder blade: fingers round her, knuckles proud of her edge.
-	_rect(c, HER_X - 8, 32, HER_X - 6, 34, t.skin)
-	_px(c, HER_X - 8, 35, t.wrap)
+	_rect(c, LEFT_X - 8, 32, LEFT_X - 6, 34, t.skin)
+	_px(c, LEFT_X - 8, 35, t.wrap)
 	# And at her far side, lower, in shade because it is the far hand.
-	_rect(c, HER_X - 8, 27, HER_X - 6, 29, t.skin_shade)
-	_px(c, HER_X - 8, 30, t.wrap_shade)
+	_rect(c, LEFT_X - 8, 27, LEFT_X - 6, 29, t.skin_shade)
+	_px(c, LEFT_X - 8, 30, t.wrap_shade)
 
 
 ## Her arms, round him — the part of the pose that is meant to be seen, so it
@@ -333,18 +339,18 @@ func _draw_his_hands(c: PackedByteArray, t: Tones) -> void:
 ##
 ## The hands land ON his far edge — his jumper reaches about x = 42 — so each
 ## arm ends in a hand that is gripping him rather than resting in mid-air.
-func _draw_her_shoulder_arm(c: PackedByteArray, t: Tones) -> void:
+func _draw_left_shoulder_arm(c: PackedByteArray, t: Tones) -> void:
 	# Up over his shoulder, hand on his far shoulder — his jumper reaches
 	# about x = 42, so the hand lands ON him rather than in mid-air.
-	_slope(c, HER_X + 5, 37, HIS_X + 4, 44, 3, t.wrap)
-	_rect(c, HIS_X + 4, 44, HIS_X + 7, 46, t.skin)
+	_slope(c, LEFT_X + 5, 37, RIGHT_X + 4, 44, 3, t.wrap)
+	_rect(c, RIGHT_X + 4, 44, RIGHT_X + 7, 46, t.skin)
 	# And her hand at his far waist, the other end of the arm drawn below.
-	_rect(c, HIS_X + 5, 29, HIS_X + 7, 31, t.skin_shade)
+	_rect(c, RIGHT_X + 5, 29, RIGHT_X + 7, 31, t.skin_shade)
 
 
 ## Her other arm, round his waist. Drawn before him — see `_draw`.
-func _draw_her_waist_arm(c: PackedByteArray, t: Tones) -> void:
-	_slope(c, HER_X + 4, 29, HIS_X + 6, 30, 2, t.wrap_shade)
+func _draw_left_waist_arm(c: PackedByteArray, t: Tones) -> void:
+	_slope(c, LEFT_X + 4, 29, RIGHT_X + 6, 30, 2, t.wrap_shade)
 
 
 # ------------------------------------------------------------- primitives

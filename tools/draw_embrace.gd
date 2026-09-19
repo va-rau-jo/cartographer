@@ -12,13 +12,13 @@ func _initialize() -> void:
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(dir))
 
 	var e: EmbraceFigure = EmbraceFigure.new()
-	e.build(PixelFigure.Palette.new(), PixelFigure.Palette.husband())
+	e.build(PixelFigure.Palette.new(), PixelFigure.Palette.for_trousers())
 	var canvas: PackedByteArray = e._draw()
 
 	# The same table build() makes: her eleven tones, then his, then the edge.
 	var colours: Array = [Color.TRANSPARENT]
 	var her_tones: Array = PixelFigure.Palette.new().to_array()
-	var his_tones: Array = PixelFigure.Palette.husband().to_array()
+	var his_tones: Array = PixelFigure.Palette.for_trousers().to_array()
 	for i in range(1, her_tones.size()):
 		colours.append(her_tones[i])
 	for i in range(1, his_tones.size()):

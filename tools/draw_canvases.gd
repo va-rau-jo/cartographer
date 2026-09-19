@@ -16,7 +16,7 @@ func _initialize() -> void:
 		var figure: PixelFigure = PixelFigure.new()
 		figure.form = spec[1]
 		figure.palette = PixelFigure.Palette.new() if spec[1] == 0 \
-			else PixelFigure.Palette.husband()
+			else PixelFigure.Palette.for_trousers()
 		var colours: Array = figure.palette.to_array()
 
 		var views := {

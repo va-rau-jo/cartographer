@@ -1,20 +1,19 @@
 extends Control
-## What you get after loading an album: is this the right one, and what do you
-## want to do with it.
+## What you get after loading a settings file: is this the right one, and what
+## do you want to do with it.
 ##
 ## Two people arrive here and they need opposite things.
 ##
-##   * The player has just loaded the gift. She needs to know it is the right
-##     album and then press Begin. She must NOT see the ten photographs — they
+##   * The player has just loaded the gift. They need to know it is the right
+##     file and then press Begin. They must NOT see the ten photographs — they
 ##     are the game.
 ##   * The author has just loaded their own work in progress. They need to see
 ##     it and get into the editor.
 ##
-## So the tiles show each photograph at blur tier 0, which is the fog she will
-## meet in the hall: enough to tell one album from another, nothing given away.
-## "Show the photographs" reveals them, off by default, with the warning
-## attached — the author's need does not get to spoil the player's game by
-## default.
+## So the tiles show each photograph at blur tier 0, which is the fog met in
+## the hall: enough to tell one file from another, nothing given away. "Show
+## the photographs" reveals them, off by default, with the warning attached —
+## the author's need does not get to spoil the player's game by default.
 
 const HEADING := 34
 const LABEL := 15
@@ -93,7 +92,7 @@ func _build() -> void:
 	scroll.add_child(_grid)
 
 	_reveal = CheckBox.new()
-	_reveal.text = "Show the photographs — only if this album is yours;" \
+	_reveal.text = "Show the photographs — only if these settings are yours;" \
 		+ " it gives the game away"
 	_reveal.add_theme_font_size_override("font_size", LABEL)
 	_reveal.toggled.connect(_on_reveal_toggled)
@@ -108,8 +107,8 @@ func _build() -> void:
 
 	_play = _button("Begin", _on_play)
 	buttons.add_child(_play)
-	buttons.add_child(_button("Edit this album", _on_edit))
-	buttons.add_child(_button("Load a different one", _on_load_another))
+	buttons.add_child(_button("Edit these settings", _on_edit))
+	buttons.add_child(_button("Load a different file", _on_load_another))
 	buttons.add_child(_button("Back to the menu", _on_back))
 
 
@@ -141,14 +140,14 @@ func _populate() -> void:
 	_captions.clear()
 
 	if album == null:
-		_title_label.text = "No album loaded"
-		_note_label.text = "Load a .ccalbum from the menu, or make one."
+		_title_label.text = "No settings loaded"
+		_note_label.text = "Load a settings file from the menu, or create one."
 		_facts_label.text = ""
 		_play.disabled = true
 		return
 
 	_title_label.text = album.title if not album.title.is_empty() \
-		else "An album with no name"
+		else "Settings with no name"
 	_note_label.text = album.author_note
 	_facts_label.text = _facts()
 
@@ -176,8 +175,8 @@ func _facts() -> String:
 	if lo <= hi:
 		parts.append("%d to %d" % [lo, hi] if lo != hi else str(lo))
 
-	if not album.curator_voice_name.is_empty():
-		parts.append("with %s" % album.curator_voice_name)
+	var cast := CastProfile.for_album(album)
+	parts.append("%s and %s" % [cast.main_name(), cast.side_name()])
 
 	var problems := AlbumValidator.validate(album, false)
 	var warnings := AlbumValidator.count_of(problems,
@@ -271,9 +270,8 @@ func _on_play() -> void:
 		_status.text = "Could not start the game (error %d)." % err
 
 
-## Hand the loaded album to the editor. The album itself is already in
-## AlbumService; the flag is how the editor knows to adopt it rather than
-## starting empty.
+## Hand the loaded settings to the editor. They are already in AlbumService;
+## the flag is how the editor knows to adopt them rather than starting empty.
 func _on_edit() -> void:
 	GameState.edit_loaded_album = true
 	var err := get_tree().change_scene_to_file("res://scenes/editor/editor.tscn")
@@ -286,7 +284,7 @@ func _on_load_another() -> void:
 	if Platform.is_picking():
 		_status.text = "There is already a file dialog open."
 		return
-	_status.text = "Choose a .ccalbum file…"
+	_status.text = "Choose a settings file…"
 	if not Platform.files_picked.is_connected(_on_files_picked):
 		Platform.files_picked.connect(_on_files_picked)
 		Platform.pick_cancelled.connect(func() -> void: _status.text = "")

@@ -73,27 +73,45 @@ Blender-baked AO in the trim sheets.
 godot --path .
 ```
 
-**Begin** plays the whole arc, starting in the hospital room. **Walk the
-gallery (no album)** skips straight to the hall with placeholder pictures.
+**Create settings** is the authoring screen: everything that goes into one
+playable file, in three tabs.
 
-**The two of you** is the cast screen, and it decides three things:
+1. **General** — the title, the note shown at the end, the two characters, the
+   last line before the hug, and the calendar range.
+2. **Photographs** — the source folder or zip, the wall in hang order, and
+   everything about the selected photograph.
+3. **Save** — what is still missing, and the button that writes the file.
 
-* **Who you walk as.** Either of them can hold the map. The other one is the
-  one lying in the bed at the start and waiting at the end of the hall — so
-  choosing the husband makes the wife the dying one, and the whole game plays
-  from his side. Nothing else about the fiction changes.
-* **What they are called.** Chelsea and Victor by default. The names are used
-  for a new album's "his name" and "her name" fields, and either is still the
-  author's to change per album.
-* **How they look.** Five colours each — skin, hair, dress or trousers,
-  cardigan or jumper, shoes — with the real figure turning beside the swatches
-  under the hall's own light. The two builds are drawn separately: hers has a
-  skirt and a bun, his has trousers and a short crop, and they are the same
-  height because the hug at the ending is one drawn pose.
+**Load settings…** reads one back and lands on its own page, where you can
+begin it or edit it. **Begin** plays the whole arc, starting in the hospital
+room. **Walk the gallery (no album)** skips straight to the hall with
+placeholder pictures.
 
-Saved to `user://cast.json`, so it is the player's own preference and does not
-travel inside an album. A `user://profile.json` from an earlier build — which
-knew only one figure — is adopted once, as the wife.
+### The two characters
+
+There are two, and the words for them are **main** and **side**:
+
+* the **main character** walks the hall with the map and is on screen the
+  whole time — this is the one you play;
+* the **side character** waits at the far end of it, lies in the bed at the
+  start, and talks about the photographs.
+
+Victor is the main character by default and Chelsea the side one. **Swap them**
+exchanges the two, names and looks included, so whoever was waiting now walks.
+
+Each has a name, a **build** and five colours — skin, hair, trousers or dress,
+jumper or cardigan, shoes — with the real figure turning beside the swatches
+under the hall's own light. The build is a look and not a role: either
+character can be either. The two builds are drawn separately (a skirt and a
+bun, or trousers and a short crop) and are the same height, because the hug at
+the ending is one drawn pose.
+
+The characters live **inside the settings file**, so the person a file was made
+for meets the author's two characters and not whatever their own machine has
+saved. **Characters** on the menu edits this machine's own default — what a new
+file starts from, and who plays when a file names nobody. That is saved to
+`user://cast.json`; a `user://profile.json` from a build that knew only one
+figure is adopted once, as the main character.
 
 |          |                                                                                 |
 | -------- | ------------------------------------------------------------------------------- |

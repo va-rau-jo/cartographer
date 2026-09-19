@@ -51,12 +51,14 @@ const FIGURE_HEIGHT := float(SPRITE_HEIGHT) * PIXEL
 
 enum View { FRONT, SIDE, BACK }
 
-## Which body is drawn. Either of them can be the one you play (see
-## CastProfile), so both builds are drawn here from the same primitives and the
-## same five-colour palette: a skirt and a bun, or trousers and a short crop.
+## Which body is drawn. Two builds, from the same primitives and the same
+## five-colour palette: a skirt and a bun, or trousers and a short crop. Named
+## for the clothes rather than for a person, because either character can be
+## either build (see CastProfile).
+##
 ## They are the same height — the hug at the ending is one drawn pose and it
 ## expects a pair it already knows the proportions of.
-enum Form { WOMAN, MAN }
+enum Build { SKIRT, TROUSERS }
 
 ## Palette indices.
 const EMPTY := 0
@@ -110,19 +112,22 @@ class Palette extends RefCounted:
 	func _edge() -> Color:
 		return Color(dress.r * 0.32, dress.g * 0.30, dress.b * 0.36)
 
-	static func husband() -> Palette:
+	## The muted colours the trousers build starts in. Kept in step with
+	## FigureProfile.trousers_default, so a figure built straight from this
+	## looks like one built from the saved default.
+	static func for_trousers() -> Palette:
 		var p := Palette.new()
-		p.skin = Color(0.87, 0.71, 0.61)
-		p.hair = Color(0.74, 0.73, 0.71)
+		p.skin = Color(0.91, 0.76, 0.66)
+		p.hair = Color(0.80, 0.78, 0.75)
 		p.dress = Color(0.42, 0.40, 0.36)     # trousers
-		p.wrap = Color(0.55, 0.45, 0.33)      # cardigan
-		p.shoe = Color(0.19, 0.16, 0.15)
+		p.wrap = Color(0.55, 0.45, 0.33)      # jumper
+		p.shoe = Color(0.22, 0.18, 0.17)
 		return p
 
 
 var palette := Palette.new()
 ## Which of the two bodies is drawn.
-var form: Form = Form.WOMAN
+var form: Build = Build.SKIRT
 ## Turn to the viewport's camera every frame without being driven by anything.
 ##
 ## The player's figure is driven by the controller and the embrace by the
@@ -150,7 +155,7 @@ func build(p: Palette = null, new_form: int = -1) -> void:
 	if p != null:
 		palette = p
 	if new_form >= 0:
-		form = new_form as Form
+		form = new_form as Build
 
 	_material = VoxelMesher.make_material()
 	var colours := palette.to_array()
@@ -439,8 +444,8 @@ func _draw_head(c: PackedByteArray, cx: int, front: bool, profile: bool) -> void
 
 
 func _front_canvas() -> PackedByteArray:
-	if form == Form.MAN:
-		return _front_canvas_man()
+	if form == Build.TROUSERS:
+		return _front_canvas_trousers()
 	var c := _new_canvas()
 	var cx := int(CENTRE)
 
@@ -472,8 +477,8 @@ func _front_canvas() -> PackedByteArray:
 
 
 func _side_canvas() -> PackedByteArray:
-	if form == Form.MAN:
-		return _side_canvas_man()
+	if form == Build.TROUSERS:
+		return _side_canvas_trousers()
 	var c := _new_canvas()
 	var cx := int(CENTRE)
 
@@ -511,8 +516,8 @@ func _side_canvas() -> PackedByteArray:
 
 
 func _back_canvas() -> PackedByteArray:
-	if form == Form.MAN:
-		return _back_canvas_man()
+	if form == Build.TROUSERS:
+		return _back_canvas_trousers()
 	var c := _new_canvas()
 	var cx := int(CENTRE)
 
@@ -536,17 +541,17 @@ func _back_canvas() -> PackedByteArray:
 	return c
 
 
-# --------------------------------------------------------------- him, drawn
+# ------------------------------------------------------ the trousers build
 
 ## The same figure with three changes, which between them are the whole
-## difference between reading as a woman and reading as a man at this size:
-## trousers with a gap between the legs instead of a skirt, a squarer and
-## slightly wider torso, and a short crop instead of a bun.
+## difference between the two builds at this size: trousers with a gap between
+## the legs instead of a skirt, a squarer and slightly wider torso, and a short
+## crop instead of a bun.
 ##
-## The palette slots do not change — `dress` is his trousers and `wrap` is his
-## jumper — so one set of swatches dresses either of them and the shading pass
-## below is shared.
-func _draw_head_man(c: PackedByteArray, cx: int, front: bool,
+## The palette slots do not change — `dress` is the trousers and `wrap` is the
+## jumper — so one set of swatches dresses either build, and the shading pass
+## is shared.
+func _draw_head_crop(c: PackedByteArray, cx: int, front: bool,
 		profile: bool) -> void:
 	# A squarer jaw. Her head is a rounded rectangle; his keeps the two corners
 	# at the chin (y = 44 is the chin, y = 55 the crown).
@@ -612,7 +617,7 @@ func _draw_trousers(c: PackedByteArray, cx: int) -> void:
 	_rect(c, cx - 6, 24, cx + 6, 29, DRESS)
 
 
-func _front_canvas_man() -> PackedByteArray:
+func _front_canvas_trousers() -> PackedByteArray:
 	var c := _new_canvas()
 	var cx := int(CENTRE)
 
@@ -636,14 +641,14 @@ func _front_canvas_man() -> PackedByteArray:
 
 	# A thicker neck, then the head.
 	_rect(c, cx - 2, 42, cx + 2, 45, SKIN)
-	_draw_head_man(c, cx, true, false)
+	_draw_head_crop(c, cx, true, false)
 
 	_shade_right(c, cx + 2)
 	_ground_contact(c)
 	return c
 
 
-func _side_canvas_man() -> PackedByteArray:
+func _side_canvas_trousers() -> PackedByteArray:
 	var c := _new_canvas()
 	var cx := int(CENTRE)
 
@@ -667,14 +672,14 @@ func _side_canvas_man() -> PackedByteArray:
 	_rect(c, cx + 2, 25, cx + 5, 29, SKIN_SHADE)
 
 	_rect(c, cx + 1, 42, cx + 3, 45, SKIN)
-	_draw_head_man(c, cx + 2, true, true)
+	_draw_head_crop(c, cx + 2, true, true)
 
 	_shade_right(c, cx + 4)
 	_ground_contact(c)
 	return c
 
 
-func _back_canvas_man() -> PackedByteArray:
+func _back_canvas_trousers() -> PackedByteArray:
 	var c := _new_canvas()
 	var cx := int(CENTRE)
 
@@ -691,7 +696,7 @@ func _back_canvas_man() -> PackedByteArray:
 	_rect(c, cx + 7, 25, cx + 10, 29, SKIN)
 
 	_rect(c, cx - 2, 42, cx + 2, 45, SKIN)
-	_draw_head_man(c, cx, false, false)
+	_draw_head_crop(c, cx, false, false)
 
 	_shade_right(c, cx + 2)
 	_ground_contact(c)

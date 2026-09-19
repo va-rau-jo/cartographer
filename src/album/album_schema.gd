@@ -378,6 +378,17 @@ class Album extends RefCounted:
 	var guess_year_min: int = 0
 	var guess_year_max: int = 0
 
+	## The two characters, as CastProfile writes them — a raw dictionary here
+	## rather than a CastProfile, so this file keeps knowing nothing about the
+	## figures it is describing (the data layer references no scene code; see
+	## the README's first rule).
+	##
+	## Empty means the file carries no cast, and the machine it is played on
+	## uses its own. A settings file made by the editor always carries one:
+	## whoever the author set up should be who the recipient meets, not
+	## whatever that machine happens to have saved.
+	var cast: Dictionary = {}
+
 	var scoring := ScoringConfig.new()
 	## Wall order down the hallway. Dramatic, not chronological: open warm,
 	## close with the one that hurts.
@@ -402,6 +413,8 @@ class Album extends RefCounted:
 		var guessing := AlbumSchema.sub_dict(d, "guessing")
 		a.guess_year_min = int(guessing.get("yearMin", 0))
 		a.guess_year_max = int(guessing.get("yearMax", 0))
+
+		a.cast = AlbumSchema.sub_dict(d, "cast")
 
 		a.scoring = ScoringConfig.from_dict(AlbumSchema.sub_dict(d, "scoring"))
 		a.hang_order = PackedStringArray(AlbumSchema.sub_array(d, "hangOrder"))
@@ -432,6 +445,7 @@ class Album extends RefCounted:
 				"yearMin": guess_year_min,
 				"yearMax": guess_year_max,
 			},
+			"cast": cast,
 			"scoring": scoring.to_dict(),
 			"hangOrder": Array(hang_order),
 			"photos": photo_dicts,
@@ -493,6 +507,11 @@ class Album extends RefCounted:
 		if hi <= lo:
 			hi = lo + 10
 		return Vector2i(lo, hi)
+
+
+	## Whether this file names its own characters.
+	func has_cast() -> bool:
+		return not cast.is_empty()
 
 
 	func photo_by_id(photo_id: String) -> Photo:

@@ -42,7 +42,7 @@ func _teardown() -> void:
 func _test_resting_head(t: TestFramework) -> void:
 	var head := RestingHead.new()
 	_holder.add_child(head)
-	head.build(PixelFigure.Palette.husband())
+	head.build(PixelFigure.Palette.for_trousers())
 
 	# The lambda bug: a head that draws nothing leaves an empty bed.
 	t.gt(float(head.filled_pixels()), 100.0,

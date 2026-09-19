@@ -1,11 +1,17 @@
 extends Control
-## The "load game" page: choose ten photographs out of a folder and write down
-## what they are.
+## "Create settings": everything that goes into one playable file, in three
+## steps.
 ##
-## Three columns. Left: the source folder. Middle: the wall, in hang order.
-## Right: everything about the selected photograph — where, when, what it is,
-## and the three things he can be asked. Along the bottom: what is still wrong,
-## and the button that writes the .ccalbum.
+##   1. GENERAL     the title, the note at the end, the two characters, the
+##                  last line, and the calendar range.
+##   2. PHOTOGRAPHS the source folder or zip, the wall in hang order, and
+##                  everything about the selected photograph.
+##   3. SAVE        what is still missing, and the button that writes it.
+##
+## Tabs rather than one screen. All of it used to be visible at once — three
+## columns, forty controls, and the file's own fields above them — so the first
+## thing an author saw was all of it. Each tab ends with the button that goes
+## to the next one, so there is an order to follow if you want one.
 ##
 ## All the model logic lives in EditorSession, which does no IO; this reads
 ## bytes through Platform and hands them over. On the web that means a lazy
@@ -35,9 +41,10 @@ var _status: Label = null
 # --- album-level fields ---
 var _title: LineEdit = null
 var _author_note: TextEdit = null
-var _voice_name: LineEdit = null
-var _player_name: LineEdit = null
 var _closing_line: LineEdit = null
+var _tabs: TabContainer = null
+var _cast_editor: CastEditor = null
+var _summary: Label = null
 var _guess_from: SpinBox = null
 var _guess_to: SpinBox = null
 var _dial_note: Label = null
@@ -107,19 +114,20 @@ func _ready() -> void:
 	session.album.guess_year_min = AlbumSchema.DIAL_DEFAULT_MIN
 	session.album.guess_year_max = AlbumSchema.current_year()
 
-	# And with the two of them already named, from whoever this machine has
-	# been set up as. Both fields are still the author's to change: the cast is
-	# who plays, and these two are who the album says they are.
+	# And with two characters already in it, from this machine's own default.
+	# They travel inside the file, so the person it is made for meets the
+	# author's two characters and not whatever their own machine has saved.
 	var cast := CastProfile.load_saved()
-	session.album.curator_voice_name = cast.companion_name()
-	session.album.curator_player_name = cast.player_name()
+	session.album.cast = cast.to_dict()
+	session.album.curator_player_name = cast.main_name()
+	session.album.curator_voice_name = cast.side_name()
 	_read_album_fields()
 
 	_refresh()
 	if _adopt_failed.is_empty():
-		_set_status("Choose a folder of photographs to begin.")
+		_set_status("Start with the title and the characters, then add the photographs.")
 	else:
-		_set_status("%s Starting a new album instead." % _adopt_failed)
+		_set_status("%s Starting new settings instead." % _adopt_failed)
 
 
 # ------------------------------------------------------------------- build
@@ -136,104 +144,159 @@ func _build() -> void:
 	var margin := MarginContainer.new()
 	margin.set_anchors_preset(Control.PRESET_FULL_RECT)
 	for side in ["left", "right", "top", "bottom"]:
-		margin.add_theme_constant_override("margin_" + side, 24)
+		margin.add_theme_constant_override("margin_" + side, 20)
 	add_child(margin)
 
 	var rows := VBoxContainer.new()
-	rows.add_theme_constant_override("separation", 12)
+	rows.add_theme_constant_override("separation", 10)
 	margin.add_child(rows)
 
-	rows.add_child(_build_header())
+	# One tab per step, in the order they are done. Everything used to be on
+	# screen at once — three columns, forty controls and the album's own fields
+	# above them — which meant the first thing an author saw was all of it.
+	_tabs = TabContainer.new()
+	_tabs.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_tabs.tab_alignment = TabBar.ALIGNMENT_LEFT
+	_tabs.add_theme_font_size_override("font_size", BODY)
+	rows.add_child(_tabs)
 
-	var columns := HBoxContainer.new()
-	columns.add_theme_constant_override("separation", 16)
-	columns.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	rows.add_child(columns)
+	# A TabContainer titles its tabs from the child node's NAME, and a node
+	# name may not contain a dot — "1. General" came out as "1_ General". So
+	# the names are plain and the titles are set after.
+	var general := _build_general()
+	general.name = "General"
+	_tabs.add_child(general)
 
-	columns.add_child(_build_sources())
-	columns.add_child(_build_wall())
-	columns.add_child(_build_detail())
+	var photos := _build_photos()
+	photos.name = "Photographs"
+	_tabs.add_child(photos)
+
+	var review := _build_review()
+	review.name = "Save"
+	_tabs.add_child(review)
+
+	_tabs.set_tab_title(0, "  1 · General  ")
+	_tabs.set_tab_title(1, "  2 · Photographs  ")
+	_tabs.set_tab_title(2, "  3 · Save  ")
 
 	rows.add_child(_build_footer())
 
 
-func _build_header() -> Control:
-	var box := _panel()
+## The step-through button at the bottom of a tab. A tab that is the end of
+## the flow gets none.
+func _next_button(text: String, to_tab: int) -> Control:
 	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 14)
-	box.add_child(row)
+	var spacer := Control.new()
+	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(spacer)
+	var go := func() -> void:
+		if _tabs != null:
+			_tabs.current_tab = to_tab
+	row.add_child(_action(text, go, 220))
+	return row
 
-	var left := VBoxContainer.new()
-	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	left.add_theme_constant_override("separation", 4)
-	row.add_child(left)
 
-	left.add_child(_small("Album title"))
+# ---------------------------------------------------------------- 1. general
+
+## Title, note, the two characters, and the calendar range — everything that is
+## true of the whole file rather than of one photograph.
+func _build_general() -> Control:
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+
+	var column := VBoxContainer.new()
+	column.add_theme_constant_override("separation", 10)
+	column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(column)
+
+	var open_row := HBoxContainer.new()
+	open_row.add_theme_constant_override("separation", 8)
+	open_row.add_child(_action("Open existing settings…", _on_open_album, 240))
+	var open_spacer := Control.new()
+	open_spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	open_row.add_child(open_spacer)
+	column.add_child(open_row)
+
+	column.add_child(_heading("Title"))
 	_title = LineEdit.new()
 	_title.placeholder_text = "For Maggie"
 	_title.text_changed.connect(func(t: String) -> void:
 		session.album.title = t)
-	left.add_child(_title)
+	column.add_child(_title)
 
-	left.add_child(_small("A note from you — shown at the very end"))
-	_author_note = _text_area(48)
+	column.add_child(_small("Shown when the settings are loaded."))
+
+	column.add_child(_heading("A note at the end"))
+	_author_note = _text_area(56)
 	_author_note.text_changed.connect(func() -> void:
 		session.album.author_note = _author_note.text)
-	left.add_child(_author_note)
+	column.add_child(_author_note)
 
-	var right := VBoxContainer.new()
-	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	right.add_theme_constant_override("separation", 4)
-	row.add_child(right)
+	column.add_child(_separator())
+	column.add_child(_heading("Characters"))
 
-	right.add_child(_small("His name, as she would say it"))
-	_voice_name = LineEdit.new()
-	_voice_name.placeholder_text = "Tom"
-	_voice_name.text_changed.connect(func(t: String) -> void:
-		session.album.curator_voice_name = t)
-	right.add_child(_voice_name)
+	_cast_editor = CastEditor.new()
+	_cast_editor.custom_minimum_size = Vector2(0, 700)
+	_cast_editor.setup(CastProfile.for_album(session.album))
+	_cast_editor.changed.connect(_on_cast_changed)
+	column.add_child(_cast_editor)
 
-	right.add_child(_small("Her name, as he would say it"))
-	_player_name = LineEdit.new()
-	_player_name.placeholder_text = "Maggie"
-	_player_name.text_changed.connect(func(t: String) -> void:
-		session.album.curator_player_name = t)
-	right.add_child(_player_name)
-
-	right.add_child(_small("The last thing he says, before the hug"))
+	column.add_child(_separator())
+	column.add_child(_heading("Last line"))
 	_closing_line = LineEdit.new()
 	_closing_line.placeholder_text = "(leave empty for silence)"
 	_closing_line.text_changed.connect(func(t: String) -> void:
 		session.album.closing_line = t)
-	right.add_child(_closing_line)
+	column.add_child(_closing_line)
+	column.add_child(_small("Said just before the hug, by the side character."))
 
-	right.add_child(_small("The calendar dial she guesses with — the two ends"
-		+ " of it. Zero at either end means work that end out from the"
-		+ " photographs themselves."))
+	column.add_child(_separator())
+	column.add_child(_heading("Calendar range"))
+
 	var dial := HBoxContainer.new()
 	dial.add_theme_constant_override("separation", 8)
 	dial.add_child(_fixed_small("from", 40))
 	# Bounded by photography at one end and today at the other. The old boxes
-	# went to 2100, which let an album ship a dial with seventy years of future
+	# went to 2100, which let a file ship a dial with seventy years of future
 	# on it — and a zip of scans stamped with this year's upload date used to
 	# drag the worked-out end there by itself.
-	_guess_from = _spin(0.0, float(AlbumSchema.current_year()), 1.0, 84)
+	_guess_from = _spin(0.0, float(AlbumSchema.current_year()), 1.0, 96)
 	_guess_from.value_changed.connect(func(v: float) -> void:
 		session.album.guess_year_min = int(v)
 		_refresh_dial_note())
 	dial.add_child(_guess_from)
 	dial.add_child(_fixed_small("to", 24))
-	_guess_to = _spin(0.0, float(AlbumSchema.current_year()), 1.0, 84)
+	_guess_to = _spin(0.0, float(AlbumSchema.current_year()), 1.0, 96)
 	_guess_to.value_changed.connect(func(v: float) -> void:
 		session.album.guess_year_max = int(v)
 		_refresh_dial_note())
 	dial.add_child(_guess_to)
-	right.add_child(dial)
+	var dial_spacer := Control.new()
+	dial_spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	dial.add_child(dial_spacer)
+	column.add_child(dial)
 
 	_dial_note = _small("")
-	right.add_child(_dial_note)
+	column.add_child(_dial_note)
+	column.add_child(_small("Zero at either end works that end out from the"
+		+ " photographs."))
 
-	return box
+	column.add_child(_separator())
+	column.add_child(_next_button("Photographs  →", 1))
+
+	return scroll
+
+
+## The cast is part of the file, so a change to it is a change to the file.
+func _on_cast_changed() -> void:
+	if _cast_editor == null or _cast_editor.cast == null:
+		return
+	session.album.cast = _cast_editor.cast.to_dict()
+	# The names the lines are written with follow the characters, rather than
+	# being typed a second time in two fields of their own.
+	session.album.curator_player_name = _cast_editor.cast.main_name()
+	session.album.curator_voice_name = _cast_editor.cast.side_name()
+	_refresh_problems()
 
 
 ## Say what the dial will actually show, whether the author set the ends or
@@ -246,8 +309,63 @@ func _refresh_dial_note() -> void:
 	var how := "from your own ends"
 	if session.album.guess_year_min <= 0 or session.album.guess_year_max <= 0:
 		how = "worked out from the photographs"
-	_dial_note.text = "she will turn the dial between %d and %d (%s)" \
+	_dial_note.text = "the dial will run from %d to %d (%s)" \
 		% [span.x, span.y, how]
+
+
+# ------------------------------------------------------------- 2. photographs
+
+func _build_photos() -> Control:
+	var column := VBoxContainer.new()
+	column.add_theme_constant_override("separation", 10)
+
+	var columns := HBoxContainer.new()
+	columns.add_theme_constant_override("separation", 14)
+	columns.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	column.add_child(columns)
+
+	columns.add_child(_build_sources())
+	columns.add_child(_build_wall())
+	columns.add_child(_build_detail())
+
+	column.add_child(_next_button("Save  →", 2))
+	return column
+
+
+# ------------------------------------------------------------------ 3. save
+
+func _build_review() -> Control:
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+
+	var column := VBoxContainer.new()
+	column.add_theme_constant_override("separation", 12)
+	column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(column)
+
+	column.add_child(_heading("What is left to do"))
+
+	_problem_text = RichTextLabel.new()
+	_problem_text.bbcode_enabled = true
+	_problem_text.fit_content = true
+	_problem_text.custom_minimum_size = Vector2(0, 260)
+	_problem_text.add_theme_font_size_override("normal_font_size", BODY)
+	column.add_child(_problem_text)
+
+	column.add_child(_separator())
+
+	_summary = _small("")
+	column.add_child(_summary)
+
+	var save_row := HBoxContainer.new()
+	_export_button = _action("Save the settings", _on_export, 260)
+	save_row.add_child(_export_button)
+	var save_spacer := Control.new()
+	save_spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	save_row.add_child(save_spacer)
+	column.add_child(save_row)
+
+	return scroll
 
 
 func _build_sources() -> Control:
@@ -258,7 +376,7 @@ func _build_sources() -> Control:
 	column.add_theme_constant_override("separation", 8)
 	box.add_child(column)
 
-	column.add_child(_heading("Your folder"))
+	column.add_child(_heading("Your photographs"))
 
 	_choose_folder = Button.new()
 	_choose_folder.text = "Choose a folder…"
@@ -304,8 +422,7 @@ func _build_wall() -> Control:
 	box.add_child(column)
 
 	column.add_child(_heading("The wall"))
-	column.add_child(_small("In the order she will walk past them. Open warm,"
-		+ " close with the one that hurts."))
+	column.add_child(_small("In the order they are walked past."))
 
 	_wall_list = ItemList.new()
 	_wall_list.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -362,14 +479,13 @@ func _build_detail() -> Control:
 	_source_note = _small("")
 	_detail.add_child(_source_note)
 
-	_detail.add_child(_small("What it is"))
+	_detail.add_child(_small("Title"))
 	_photo_title = LineEdit.new()
 	_photo_title.text_changed.connect(func(t: String) -> void:
 		_with_photo(func(p: AlbumSchema.Photo) -> void: p.content.title = t))
 	_detail.add_child(_photo_title)
 
-	_detail.add_child(_small("What you remember about it — this is what he"
-		+ " draws his hints from"))
+	_detail.add_child(_small("Description"))
 	_description = _text_area(70)
 	_description.text_changed.connect(func() -> void:
 		_with_photo(func(p: AlbumSchema.Photo) -> void:
@@ -377,7 +493,7 @@ func _build_detail() -> Control:
 	_detail.add_child(_description)
 
 	_detail.add_child(_separator())
-	_detail.add_child(_small("Where"))
+	_detail.add_child(_small("Place"))
 
 	_place = LineEdit.new()
 	_place.placeholder_text = "Whitby, England"
@@ -440,8 +556,8 @@ func _build_detail() -> Control:
 		spin.value_changed.connect(func(_v: float) -> void: _write_date())
 	_detail.add_child(when)
 
-	_detail.add_child(_small("Zero means you do not know: a year on its own is"
-		+ " a perfectly good answer."))
+	_detail.add_child(_small("Zero means unknown. A year on its own is"
+		+ " enough."))
 
 	# Stacked, not side by side: two buttons in a row needed 346 px of the
 	# column's 320. In here, vertical space is cheap and horizontal is not.
@@ -453,8 +569,7 @@ func _build_detail() -> Control:
 		_on_fill_years, 0))
 	_detail.add_child(when_buttons)
 
-	_detail.add_child(_small("And how sure you are — she is only ever scored"
-		+ " to this much"))
+	_detail.add_child(_small("Scored to"))
 	_precision = OptionButton.new()
 	_precision.add_item("to the day", AlbumSchema.DatePrecision.DAY)
 	_precision.add_item("the month", AlbumSchema.DatePrecision.MONTH)
@@ -466,14 +581,10 @@ func _build_detail() -> Control:
 	_detail.add_child(_precision)
 
 	_detail.add_child(_separator())
-	_detail.add_child(_small("What he says if she asks. Each one costs her"
-		+ " more than the last, so each one should give more away."))
+	_detail.add_child(_small("Hints. Each one costs more than the last, so"
+		+ " each one should give more away."))
 
-	const HINT_LABELS := [
-		"1 — a feeling, a smell, the weather. Never the place.",
-		"2 — the region, the country, the season.",
-		"3 — say it outright.",
-	]
+	const HINT_LABELS := ["Hint 1", "Hint 2", "Hint 3"]
 	_hints.clear()
 	for i in 3:
 		_detail.add_child(_small(HINT_LABELS[i]))
@@ -491,17 +602,17 @@ func _build_detail() -> Control:
 	# the long version of this line needed 381 px in a 320 px column and hung
 	# off the edge. The sentence that explains it goes underneath, in a label
 	# that wraps.
-	_approved.text = "He would say these"
+	_approved.text = "Hints approved"
 	_approved.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_approved.add_theme_font_size_override("font_size", LABEL)
 	_approved.toggled.connect(func(on: bool) -> void:
 		_with_photo(func(p: AlbumSchema.Photo) -> void:
 			p.curator.approved_by_author = on))
 	_detail.add_child(_approved)
-	_detail.add_child(_small("Tick it once you have read all three and they"
-		+ " sound like him. Nothing saves until every photograph is ticked."))
+	_detail.add_child(_small("Nothing saves until every photograph is"
+		+ " ticked."))
 
-	_detail.add_child(_small("What he says once it is revealed"))
+	_detail.add_child(_small("Line when it is revealed"))
 	_monologue = _text_area(60)
 	_monologue.text_changed.connect(func() -> void:
 		_with_photo(func(p: AlbumSchema.Photo) -> void:
@@ -509,8 +620,7 @@ func _build_detail() -> Control:
 	_detail.add_child(_monologue)
 
 	_detail.add_child(_separator())
-	_detail.add_child(_small("Your own notes. Never shown in the game, not"
-		+ " anywhere, not ever."))
+	_detail.add_child(_small("Private note — never shown in the game."))
 	_private = _text_area(46)
 	_private.text_changed.connect(func() -> void:
 		_with_photo(func(p: AlbumSchema.Photo) -> void:
@@ -526,32 +636,16 @@ func _build_footer() -> Control:
 	row.add_theme_constant_override("separation", 14)
 	box.add_child(row)
 
-	var left := VBoxContainer.new()
-	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	left.add_theme_constant_override("separation", 4)
-	row.add_child(left)
-
-	_problem_text = RichTextLabel.new()
-	_problem_text.bbcode_enabled = true
-	_problem_text.fit_content = true
-	_problem_text.custom_minimum_size = Vector2(0, 92)
-	_problem_text.add_theme_font_size_override("normal_font_size", LABEL)
-	left.add_child(_problem_text)
-
 	_status = Label.new()
+	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_status.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_status.add_theme_font_size_override("font_size", LABEL)
 	_status.add_theme_color_override("font_color", Color(0.62, 0.58, 0.52))
-	left.add_child(_status)
+	row.add_child(_status)
 
-	var buttons := VBoxContainer.new()
-	buttons.add_theme_constant_override("separation", 6)
-	row.add_child(buttons)
-
-	buttons.add_child(_action("Open an album…", _on_open_album))
-	_export_button = _action("Save the album", _on_export)
-	buttons.add_child(_export_button)
-	buttons.add_child(_action("Back to the menu", func() -> void:
-		get_tree().change_scene_to_file("res://scenes/menu/main_menu.tscn")))
+	var back := func() -> void:
+		get_tree().change_scene_to_file("res://scenes/menu/main_menu.tscn")
+	row.add_child(_action("Back to the menu", back, 170))
 
 	return box
 
@@ -659,7 +753,7 @@ func _on_open_album() -> void:
 	if Platform.is_picking():
 		_set_status("There is already a file dialog open.")
 		return
-	_set_status("Choose a .ccalbum to open…")
+	_set_status("Choose a settings file to open…")
 	Platform.pick_album_file()
 
 
@@ -935,6 +1029,7 @@ func _sync_map() -> void:
 
 func _refresh() -> void:
 	_refresh_dial_note()
+	_refresh_summary()
 	_refresh_sources()
 	_refresh_wall_labels()
 	_refresh_problems()
@@ -1044,11 +1139,11 @@ func _wall_position(photo_id: String) -> int:
 func _read_album_fields() -> void:
 	_title.text = session.album.title
 	_author_note.text = session.album.author_note
-	_voice_name.text = session.album.curator_voice_name
-	_player_name.text = session.album.curator_player_name
 	_closing_line.text = session.album.closing_line
 	_guess_from.set_value_no_signal(float(session.album.guess_year_min))
 	_guess_to.set_value_no_signal(float(session.album.guess_year_max))
+	if _cast_editor != null:
+		_cast_editor.setup(CastProfile.for_album(session.album))
 	_refresh_dial_note()
 
 
@@ -1094,6 +1189,23 @@ func _read_photo_fields() -> void:
 	_private.text = photo.content.private_note
 
 	_sync_map()
+
+
+## The Save tab's one line: what this file is, at a glance.
+func _refresh_summary() -> void:
+	if _summary == null or session == null:
+		return
+	var cast := _cast_editor.cast if _cast_editor != null else null
+	var title := session.album.title.strip_edges()
+	var parts: PackedStringArray = PackedStringArray()
+	parts.append("'%s'" % title if not title.is_empty() else "(no title yet)")
+	parts.append("%d of %d photographs"
+		% [session.slot_count(), EditorSession.MAX_PHOTOS])
+	if cast != null:
+		parts.append("%s walks, %s waits" % [cast.main_name(), cast.side_name()])
+	var span := session.album.guess_year_range()
+	parts.append("dial %d to %d" % [span.x, span.y])
+	_summary.text = "  ·  ".join(parts)
 
 
 ## Whether this photograph brought a date with it, and where from. An undated
@@ -1145,12 +1257,12 @@ func _clear_photo_fields() -> void:
 
 func _on_export() -> void:
 	if not session.can_export():
-		_set_status("Not yet — the list below says what is missing.")
+		_set_status("Not yet — this tab says what is missing.")
 		return
 
 	var bytes := session.export_bytes()
 	if bytes.is_empty():
-		_set_status("Could not write the album.")
+		_set_status("Could not write the settings.")
 		return
 
 	# Say what is about to happen, not that it has: on desktop this only opens
@@ -1170,8 +1282,8 @@ func _on_file_delivered(ok: bool, path: String) -> void:
 	if what.is_empty():
 		return
 	if not ok:
-		_set_status("Nothing was saved. The album is still here — press Save"
-			+ " the album when you are ready.")
+		_set_status("Nothing was saved. Everything is still here — press Save"
+			+ " the settings when you are ready.")
 		return
 	_set_status("Saved %s.%s" % [what,
 		"" if path.is_empty() else "\n%s" % path])

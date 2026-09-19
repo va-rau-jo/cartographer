@@ -53,7 +53,12 @@ func _album_bytes() -> PackedByteArray:
 	var session := EditorSession.new()
 	session.album.title = "For Maggie"
 	session.album.author_note = "Sixty years, ten of them."
-	session.album.curator_voice_name = "Tom"
+	var cast := CastProfile.create_default()
+	cast.main.display_name = "Tom"
+	cast.side.display_name = "Maggie"
+	session.album.cast = cast.to_dict()
+	session.album.curator_voice_name = "Maggie"
+	session.album.curator_player_name = "Tom"
 
 	for i in PLACES.size():
 		session.add_photo("IMG_%04d.jpg" % (i + 1), _jpeg(600 + i))
@@ -165,7 +170,8 @@ func _test_preview_screen(t: TestFramework, bytes: PackedByteArray) -> void:
 	var facts: String = screen._facts_label.text
 	t.ok(facts.contains("3 photograph"), "the count is shown (%s)" % facts)
 	t.ok(facts.contains("1961"), "and the years they span")
-	t.ok(facts.contains("Tom"), "and who he is")
+	t.ok(facts.contains("Tom") and facts.contains("Maggie"),
+		"and both characters by name (%s)" % facts)
 
 	# THE IMPORTANT ONE: fog by default, not the photographs.
 	var hung := AlbumService.album().hung_photos()
@@ -219,7 +225,7 @@ func _test_empty_preview(t: TestFramework) -> void:
 	t.ok(screen.album == null, "no album, and it knows")
 	t.eq(screen._grid.get_child_count(), 0, "no tiles")
 	t.ok(screen._play.disabled, "and Begin is refused")
-	t.ok(screen._title_label.text.contains("No album"),
+	t.ok(screen._title_label.text.contains("No settings"),
 		"with a line saying so (got %s)" % screen._title_label.text)
 
 	screen.get_parent().remove_child(screen)

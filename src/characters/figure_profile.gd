@@ -1,38 +1,35 @@
 class_name FigureProfile
 extends RefCounted
-## One of the two of them: a name, a build, and five colours.
+## One character: a name, a build, and five colours.
 ##
 ## The brief asked for a customizable player model, and for a drawn figure that
-## means one thing: the palette. Five colours — skin, hair, dress, cardigan,
-## shoes — and PixelFigure derives every shade from them, so a single swatch
-## moves the base tone and the form shading follows it (see Palette._shade).
+## means one thing: the palette. Five colours — skin, hair, lower half, upper
+## half, shoes — and PixelFigure derives every shade from them, so a single
+## swatch moves the base tone and the form shading follows it (see
+## Palette._shade).
 ##
-## Two figures exist in this game and either can be the one you play, so this
-## also carries which body is drawn (PixelFigure.Form) and what the other one
-## calls them. The pair of them, and which one the player is, live in
-## CastProfile — this is one half of that.
+## The build (PixelFigure.Build) says which of the two drawings this character
+## uses: trousers and a short crop, or a skirt and a bun. It is a look, not a
+## role — either character can be either build.
+##
+## The pair of them is CastProfile; this is one half of it.
 ##
 ## The colour slots keep their original names in code, because that is what
 ## PixelFigure's palette calls them, but they mean different garments on the
 ## two builds:
 ##
-##     slot     woman              man
+##     slot     skirt build        trousers build
 ##     dress    the dress          the trousers
 ##     wrap     the cardigan       the jumper
-##
-## Saved with the rest of the cast to `user://cast.json`, which on the web is
-## IndexedDB behind Platform.sync_user_fs(). Deliberately not part of the
-## album: the album is the gift's *content* and travels between people, while
-## this is the player's own preference and stays on the machine she plays on.
 
 ## The single-figure file this class used to own, kept only so a profile saved
-## by an earlier build still means something. CastProfile reads it once, as
-## the wife, when there is no cast file yet.
+## by an earlier build still means something. CastProfile reads it once, for
+## the main character, when there is no cast file yet.
 const PATH := "user://profile.json"
 const SCHEMA := 1
 
 ## Presets, per slot. Swatches rather than a colour wheel: five wheels is a
-## paint program, and the point is to look like her in under a minute.
+## paint program, and the point is to look like someone in under a minute.
 ## Deliberately narrow ranges — these are an old couple's colours, not a
 ## character creator's.
 const SKINS := [
@@ -56,8 +53,8 @@ const WRAPS := [
 	Color(0.38, 0.34, 0.40), Color(0.74, 0.70, 0.62),
 ]
 ## Trousers and jumpers get their own ranges rather than borrowing the dress
-## swatches: a man in this room is wearing greys, browns and a dark green, and
-## offering him a plum dress colour for his trousers is offering nothing.
+## swatches: trousers in this room are greys, browns and a dark green, and
+## offering a plum dress colour for them is offering nothing.
 const TROUSERS := [
 	Color(0.42, 0.40, 0.36), Color(0.31, 0.33, 0.38),
 	Color(0.46, 0.38, 0.29), Color(0.34, 0.38, 0.33),
@@ -74,13 +71,12 @@ const SHOES := [
 ]
 
 ## How long a name may be. Long enough for anything anyone is called, short
-## enough that it cannot push a line of his dialogue off the screen.
+## enough that it cannot push a line of dialogue off the screen.
 const NAME_LIMIT := 24
 
 var display_name: String = ""
-## Which body is drawn. A woman's drawing has a skirt and a bun; a man's has
-## trousers and a short crop. See PixelFigure's canvases.
-var form: PixelFigure.Form = PixelFigure.Form.WOMAN
+## Which of the two drawings this character uses. See PixelFigure's canvases.
+var form: PixelFigure.Build = PixelFigure.Build.SKIRT
 
 var skin: Color = SKINS[1]
 var hair: Color = HAIRS[1]
@@ -89,11 +85,11 @@ var wrap: Color = WRAPS[0]
 var shoe: Color = SHOES[0]
 
 
-## Her, as she starts: silver hair, a plum dress, a blue cardigan.
-static func wife_default(figure_name: String = "") -> FigureProfile:
+## The skirt build as it starts: silver hair, a plum dress, a blue cardigan.
+static func skirt_default(figure_name: String = "") -> FigureProfile:
 	var p := FigureProfile.new()
 	p.display_name = figure_name
-	p.form = PixelFigure.Form.WOMAN
+	p.form = PixelFigure.Build.SKIRT
 	p.skin = SKINS[1]
 	p.hair = HAIRS[1]
 	p.dress = DRESSES[0]
@@ -102,37 +98,63 @@ static func wife_default(figure_name: String = "") -> FigureProfile:
 	return p
 
 
-## Him, as he starts. The same colours the husband palette has always used in
-## the hospital room and at the far end of the hall, so nothing about the
-## scenes changes by moving him in here.
-static func husband_default(figure_name: String = "") -> FigureProfile:
+## The trousers build as it starts. The same colours the second palette has
+## always used in the hospital room and at the far end of the hall, so nothing
+## about the scenes changes by moving them in here.
+static func trousers_default(figure_name: String = "") -> FigureProfile:
 	var p := FigureProfile.new()
 	p.display_name = figure_name
-	p.form = PixelFigure.Form.MAN
-	p.skin = Color(0.87, 0.71, 0.61)
-	p.hair = Color(0.74, 0.73, 0.71)
+	p.form = PixelFigure.Build.TROUSERS
+	# Every one of these is a SWATCH, not a hand-picked colour near one. The
+	# first version of this used the exact tones the old husband palette had,
+	# and two of them were in no swatch list — so the characters screen opened
+	# with nothing ringed in the skin and hair rows.
+	p.skin = SKINS[1]
+	p.hair = HAIRS[1]
 	p.dress = TROUSERS[0]
 	p.wrap = JUMPERS[0]
-	p.shoe = Color(0.19, 0.16, 0.15)
+	p.shoe = SHOES[0]
 	return p
 
 
-## The swatches this figure should be offered for its dress/trousers slot.
+## The swatches this figure should be offered for its lower-half slot.
 func dress_options() -> Array:
-	return TROUSERS if form == PixelFigure.Form.MAN else DRESSES
+	return TROUSERS if form == PixelFigure.Build.TROUSERS else DRESSES
 
 
 func wrap_options() -> Array:
-	return JUMPERS if form == PixelFigure.Form.MAN else WRAPS
+	return JUMPERS if form == PixelFigure.Build.TROUSERS else WRAPS
 
 
-## What to call the dress/trousers slot on screen.
+## What to call the lower-half slot on screen.
 func dress_label() -> String:
-	return "Trousers" if form == PixelFigure.Form.MAN else "Dress"
+	return "Trousers" if form == PixelFigure.Build.TROUSERS else "Dress"
+
+
+## The build, as the one word the screen shows on its toggle.
+func build_label() -> String:
+	return "Trousers" if form == PixelFigure.Build.TROUSERS else "Skirt"
+
+
+## Move this figure to the other build, taking its colours to that build's
+## nearest swatch — a plum dress is not a colour trousers are offered in, and a
+## figure whose colour is in no swatch opens the screen with nothing ringed.
+func set_build(new_build: PixelFigure.Build) -> void:
+	if form == new_build:
+		return
+	var dress_index := index_of(dress_options(), dress)
+	var wrap_index := index_of(wrap_options(), wrap)
+	form = new_build
+	var dresses := dress_options()
+	var wraps := wrap_options()
+	dress = dresses[clampi(dress_index, 0, dresses.size() - 1)] \
+		if dress_index >= 0 else dresses[0]
+	wrap = wraps[clampi(wrap_index, 0, wraps.size() - 1)] \
+		if wrap_index >= 0 else wraps[0]
 
 
 func wrap_label() -> String:
-	return "Jumper" if form == PixelFigure.Form.MAN else "Cardigan"
+	return "Jumper" if form == PixelFigure.Build.TROUSERS else "Cardigan"
 
 
 ## The palette PixelFigure builds from. Everything else — the shades, the
@@ -152,7 +174,7 @@ func to_palette() -> PixelFigure.Palette:
 func to_figure_dict() -> Dictionary:
 	return {
 		"name": display_name,
-		"form": "man" if form == PixelFigure.Form.MAN else "woman",
+		"build": "trousers" if form == PixelFigure.Build.TROUSERS else "skirt",
 		"skin": skin.to_html(false),
 		"hair": hair.to_html(false),
 		"dress": dress.to_html(false),
@@ -164,6 +186,10 @@ func to_figure_dict() -> Dictionary:
 ## Read a figure object over the top of `onto` — which carries the defaults for
 ## whichever of the two this is, so a file that only recorded a hair colour
 ## still produces a whole person.
+##
+## "build" is the current key; "form" with "man"/"woman" is what the first
+## version of this file wrote, and is still read so nobody's saved figure is
+## lost.
 static func from_figure_dict(data: Dictionary,
 		onto: FigureProfile = null) -> FigureProfile:
 	var profile := onto if onto != null else FigureProfile.new()
@@ -172,9 +198,9 @@ static func from_figure_dict(data: Dictionary,
 	if not raw_name.is_empty():
 		profile.display_name = raw_name.substr(0, NAME_LIMIT)
 
-	match str(data.get("form", "")).to_lower():
-		"man": profile.form = PixelFigure.Form.MAN
-		"woman": profile.form = PixelFigure.Form.WOMAN
+	match str(data.get("build", data.get("form", ""))).to_lower():
+		"trousers", "man": profile.form = PixelFigure.Build.TROUSERS
+		"skirt", "woman": profile.form = PixelFigure.Build.SKIRT
 
 	profile.skin = _colour(data, "skin", profile.skin)
 	profile.hair = _colour(data, "hair", profile.hair)

@@ -82,9 +82,9 @@ func _build_figure() -> void:
 	figure = PixelFigure.new()
 	figure.name = "Figure"
 	add_child(figure)
-	# Whoever the player chose to walk as, however they were last saved — or
-	# the default cast (Chelsea, walking) if nobody has chosen yet.
-	var who := CastProfile.load_saved().player_figure()
+	# The main character: whoever the loaded settings name, or this machine's
+	# own default if they name nobody.
+	var who := CastProfile.for_album(AlbumService.album()).main_figure()
 	figure.build(who.to_palette(), who.form)
 
 

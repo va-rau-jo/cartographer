@@ -50,8 +50,8 @@ var hallway: HallwayBuilder.Result = null
 var frames: Array[PhotoFrame] = []
 var player: PlayerController = null
 var companion: PixelFigure = null
-## Who the two of them are, read once when the hall is built. The player
-## controller builds its own figure from the same file.
+## The two characters, read once when the hall is built. The player controller
+## builds its own figure from the same place.
 var cast: CastProfile = null
 
 var rounds: RoundController = null
@@ -357,10 +357,10 @@ func _build_characters() -> void:
 	add_child(player)
 	player.transform = hallway.player_start
 
-	# The other one of them waits at the far end, in the dark, facing back up
-	# the hall. Which one that is depends on who the player chose to walk as.
-	cast = CastProfile.load_saved()
-	var waiting := cast.companion_figure()
+	# The side character waits at the far end, in the dark, facing back up the
+	# hall.
+	cast = CastProfile.for_album(AlbumService.album())
+	var waiting := cast.side_figure()
 	companion = PixelFigure.new()
 	companion.name = "Companion"
 	add_child(companion)

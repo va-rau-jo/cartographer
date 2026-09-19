@@ -1,5 +1,6 @@
 extends Node
-## Photographs the album editor with a part-filled album in it.
+## Photographs the settings editor with a part-filled file in it — every tab,
+## because each one is now a screen of its own.
 ##
 ##   xvfb-run -a godot --path . --script tools/run_diag_editor.gd
 ##
@@ -79,15 +80,41 @@ func _run() -> void:
 		])
 
 	screen.session.album.title = "For Maggie"
-	screen.session.album.curator_voice_name = "Tom"
-	screen.session.album.curator_player_name = "Maggie"
 	screen.session.album.closing_line = "There you are."
 	screen._read_album_fields()
 	screen._select(1)
 
+	# 1. General, which is where an author starts: the title, the note, the two
+	# characters and the calendar range.
+	screen._tabs.current_tab = 0
+	for _i in 6:
+		await get_tree().process_frame
+	_save(window, "40_editor_general")
+
+	# The characters are half of that tab, so scroll down to them.
+	var general_scroll := screen._tabs.get_child(0) as ScrollContainer
+	if general_scroll != null:
+		general_scroll.scroll_vertical = int(
+			screen._cast_editor.position.y - 40.0)
+		for _i in 4:
+			await get_tree().process_frame
+		_save(window, "41_editor_characters")
+
+	# 2. The photographs.
+	screen._tabs.current_tab = 1
 	for _i in 4:
 		await get_tree().process_frame
-	_save(window, "40_editor")
+	_save(window, "42_editor_photos")
+
+	# 3. Saving, and what is left to do before it.
+	screen._tabs.current_tab = 2
+	for _i in 4:
+		await get_tree().process_frame
+	_save(window, "44_editor_save")
+
+	screen._tabs.current_tab = 1
+	for _i in 2:
+		await get_tree().process_frame
 
 	# Scrolled down to the date fields, which is where the interesting bug was:
 	# they were wired correctly and unreachable, because the row they sat in was
@@ -100,7 +127,7 @@ func _run() -> void:
 			screen._year.get_parent().position.y - 120.0))
 		for _i in 4:
 			await get_tree().process_frame
-		_save(window, "41_editor_dates")
+		_save(window, "43_editor_dates")
 
 	# And an undated photograph, which is what a scan arrives as: the note
 	# above the boxes has to say so.
@@ -112,8 +139,12 @@ func _run() -> void:
 			screen._year.get_parent().position.y - 120.0))
 	for _i in 4:
 		await get_tree().process_frame
-	_save(window, "42_editor_undated")
+	_save(window, "45_editor_undated")
 	print("")
+	print("tabs           %d" % screen._tabs.get_tab_count())
+	print("main / side    %s / %s" % [screen._cast_editor.cast.main_name(),
+		screen._cast_editor.cast.side_name()])
+	print("summary        %s" % screen._summary.text)
 	print("date note      %s" % screen._date_note.text)
 	print("date row min   %d px" % screen._year.get_parent()
 		.get_combined_minimum_size().x)

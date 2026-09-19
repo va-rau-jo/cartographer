@@ -1,6 +1,6 @@
 extends Node
-## Photographs "the two of you" — the screen where you choose who walks the
-## hall, what they are called, and how they look.
+## Photographs the Characters screen — the two characters, their names and how
+## they look.
 ##
 ##   xvfb-run -a godot --path . --script tools/run_diag_customize.gd
 ##
@@ -34,60 +34,70 @@ func _run() -> void:
 	for _i in 6:
 		await get_tree().process_frame
 
-	# Her, in colours that are nobody's default, so the swatches visibly do
-	# something.
-	screen._set_editing(CastProfile.Role.WIFE)
-	screen.cast.wife.skin = FigureProfile.SKINS[3]
-	screen.cast.wife.hair = FigureProfile.HAIRS[0]
-	screen.cast.wife.dress = FigureProfile.DRESSES[1]
-	screen.cast.wife.wrap = FigureProfile.WRAPS[5]
-	screen._rebuild_figure()
-	screen._mark_chosen()
-	screen._turning = false
-	screen._angle = 0.35
+	var editor: CastEditor = screen._editor
+
+	# The main character, in colours that are nobody's default, so the swatches
+	# visibly do something.
+	editor._select(CastProfile.Role.MAIN)
+	editor.cast.main.skin = FigureProfile.SKINS[3]
+	editor.cast.main.hair = FigureProfile.HAIRS[0]
+	editor._rebuild_figure()
+	editor._mark_chosen()
+	editor._turning = false
+	editor._angle = 0.35
 	for _i in 6:
 		await get_tree().process_frame
-	_save(window, "50_customize_her")
-	var her_tris: int = screen._figure.total_triangles()
+	_save(window, "50_characters_main")
+	var main_tris: int = editor._figure.total_triangles()
 
-	# Him, which is the new drawing: trousers, a short crop, no bun.
-	screen._set_editing(CastProfile.Role.HUSBAND)
-	screen._turning = false
-	screen._angle = 0.35
+	# The side character, which is the other drawing.
+	editor._select(CastProfile.Role.SIDE)
+	editor._turning = false
+	editor._angle = 0.35
 	for _i in 6:
 		await get_tree().process_frame
-	_save(window, "51_customize_him")
-	var his_tris: int = screen._figure.total_triangles()
+	_save(window, "51_characters_side")
+	var side_tris: int = editor._figure.total_triangles()
 
-	# His profile and his back, because a drawn figure has three views and two
+	# Its profile and its back, because a drawn figure has three views and two
 	# of them are easy to get wrong without noticing.
-	screen._angle = PI * 0.5
-	screen._figure.rotation.y = screen._angle
+	editor._angle = PI * 0.5
+	editor._figure.rotation.y = editor._angle
 	for _i in 4:
 		await get_tree().process_frame
-	_save(window, "52_customize_him_side")
+	_save(window, "52_characters_side_profile")
 
-	screen._angle = PI
-	screen._figure.rotation.y = screen._angle
+	editor._angle = PI
+	editor._figure.rotation.y = editor._angle
 	for _i in 4:
 		await get_tree().process_frame
-	_save(window, "53_customize_him_back")
+	_save(window, "53_characters_side_back")
 
-	# And the whole point of the screen: playing as him instead.
-	screen._set_player(CastProfile.Role.HUSBAND)
-	screen._turning = false
-	screen._angle = 0.35
+	# The one button that changes the game: swapping the two.
+	editor._on_swap()
+	editor._turning = false
+	editor._angle = 0.35
 	for _i in 6:
 		await get_tree().process_frame
-	_save(window, "54_customize_playing_as_him")
+	_save(window, "54_characters_swapped")
+
+	# And the main character on the skirt build, to prove the build is a look
+	# and not a role.
+	editor._select(CastProfile.Role.MAIN)
+	editor._set_build(PixelFigure.Build.SKIRT)
+	editor._turning = false
+	editor._angle = 0.35
+	for _i in 6:
+		await get_tree().process_frame
+	_save(window, "55_characters_main_skirt")
 
 	print("")
-	print("her tris       %d" % her_tris)
-	print("his tris       %d" % his_tris)
-	print("preview size   %dx%d" % [screen._viewport.size.x, screen._viewport.size.y])
-	print("playing as     %s" % screen.cast.player_name())
-	print("waiting        %s" % screen.cast.companion_name())
-	print("his trousers   %s" % screen.cast.husband.dress.to_html(false))
+	print("main tris      %d" % main_tris)
+	print("side tris      %d" % side_tris)
+	print("preview size   %dx%d"
+		% [editor._viewport.size.x, editor._viewport.size.y])
+	print("main           %s" % editor.cast.main_name())
+	print("side           %s" % editor.cast.side_name())
 	get_tree().quit(0)
 
 

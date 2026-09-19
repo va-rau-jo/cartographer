@@ -9,7 +9,7 @@ extends Control
 ##   menu -> load album -> play -> hospital -> gallery -> ending -> menu
 
 const TITLE := "CHRONO CARTOGRAPHER"
-const SUBTITLE := "A gallery in a dying man's mind."
+const SUBTITLE := "A gallery in a dying mind."
 
 var _status: RichTextLabel = null
 var _play_button: Button = null
@@ -64,11 +64,11 @@ func _build() -> void:
 
 	column.add_child(_spacer(28))
 
-	# Making an album comes first, because it is the first thing that has to
-	# happen: there is nothing to load or to begin until one exists.
-	column.add_child(_make_button("Create an album", _on_editor_pressed))
+	# Making the settings comes first, because it is the first thing that has
+	# to happen: there is nothing to load or to begin until a file exists.
+	column.add_child(_make_button("Create settings", _on_editor_pressed))
 
-	_load_button = _make_button("Load album…", _on_load_pressed)
+	_load_button = _make_button("Load settings…", _on_load_pressed)
 	column.add_child(_load_button)
 
 	_play_button = _make_button("Begin", _on_play_pressed)
@@ -76,7 +76,7 @@ func _build() -> void:
 
 	column.add_child(_make_button("Walk the gallery (no album)", _enter_gallery))
 
-	column.add_child(_make_button("The two of you", _on_customize_pressed))
+	column.add_child(_make_button("Characters", _on_customize_pressed))
 
 	if not OS.has_feature("web"):
 		column.add_child(_make_button("Quit", _on_quit_pressed))
@@ -122,18 +122,18 @@ func _on_load_pressed() -> void:
 	if Platform.is_picking():
 		_set_status("[color=gray]There is already a file dialog open.[/color]")
 		return
-	_set_status("[color=gray]Choose a .ccalbum file…[/color]")
+	_set_status("[color=gray]Choose a settings file…[/color]")
 	Platform.pick_album_file()
 
 
-## Begin shows the album's own page first. It is one click more, and it is
-## where "is this the right album" gets answered — pressing Begin and landing
-## in a hospital room with no idea which ten photographs are coming is worse.
+## Begin shows the settings' own page first. It is one click more, and it is
+## where "are these the right settings" gets answered — pressing Begin and
+## landing in a hospital room with no idea what is coming is worse.
 func _on_play_pressed() -> void:
 	var err := get_tree().change_scene_to_file(
 		"res://scenes/menu/album_preview.tscn")
 	if err != OK:
-		_set_status("[color=#e08080]Could not open the album (error %d).[/color]"
+		_set_status("[color=#e08080]Could not open the settings (error %d).[/color]"
 			% err)
 
 
@@ -154,12 +154,12 @@ func _on_editor_pressed() -> void:
 			% err)
 
 
-## Who you walk as, what the two of them are called, and how they look.
+## The two characters: their names and how they look.
 func _on_customize_pressed() -> void:
 	var err := get_tree().change_scene_to_file("res://scenes/menu/customize.tscn")
 	if err != OK:
-		_set_status("[color=#e08080]Could not open the figure screen (error %d).[/color]"
-			% err)
+		_set_status("[color=#e08080]Could not open the characters screen"
+			+ " (error %d).[/color]" % err)
 
 
 func _on_quit_pressed() -> void:
@@ -187,7 +187,7 @@ func _on_pick_cancelled() -> void:
 	_set_status("")
 
 
-## A loaded album goes straight to the preview screen: the album's own page,
+## Loaded settings go straight to the preview screen: the file's own page,
 ## where you can see what it is and choose to play it or to edit it. The menu
 ## does not try to summarise it in a status line any more.
 func _on_album_loaded(album: RefCounted) -> void:
@@ -199,13 +199,14 @@ func _on_album_loaded(album: RefCounted) -> void:
 	var err := get_tree().change_scene_to_file(
 		"res://scenes/menu/album_preview.tscn")
 	if err != OK:
-		_set_status("[color=#e08080]Could not open the album (error %d).[/color]"
+		_set_status("[color=#e08080]Could not open the settings (error %d).[/color]"
 			% err)
 
 
 func _on_album_load_failed(problems: Array) -> void:
 	var lines: PackedStringArray = PackedStringArray()
-	lines.append("[color=#e08080][b]That album could not be loaded.[/b][/color]")
+	lines.append("[color=#e08080][b]Those settings could not be loaded."
+		+ "[/b][/color]")
 	var errors := AlbumValidator.count_of(problems, AlbumValidator.Severity.ERROR)
 	var shown := 0
 	for p in problems:

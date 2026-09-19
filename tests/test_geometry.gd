@@ -320,7 +320,7 @@ static func _test_figure_proportions(t: TestFramework) -> void:
 
 	# The husband reads as a different person, not a recolour of nothing.
 	var her := PixelFigure.Palette.new().to_array()
-	var him := PixelFigure.Palette.husband().to_array()
+	var him := PixelFigure.Palette.for_trousers().to_array()
 	var differences := 0
 	for i in her.size():
 		if not (her[i] as Color).is_equal_approx(him[i]):

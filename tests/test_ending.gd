@@ -48,7 +48,7 @@ func _teardown() -> void:
 func _test_embrace(t: TestFramework) -> void:
 	var e := EmbraceFigure.new()
 	_holder.add_child(e)
-	e.build(PixelFigure.Palette.new(), PixelFigure.Palette.husband())
+	e.build(PixelFigure.Palette.new(), PixelFigure.Palette.for_trousers())
 
 	t.gt(float(e.total_triangles()), 0.0, "the embrace produces geometry")
 	# A pair of figures fills far more of the canvas than one would, but must
@@ -84,9 +84,9 @@ func _test_embrace(t: TestFramework) -> void:
 	for v in _embrace_canvas(e):
 		if v == 0:
 			continue
-		if v >= EmbraceFigure.HER_BASE and v < EmbraceFigure.HIS_BASE:
+		if v >= EmbraceFigure.LEFT_BASE and v < EmbraceFigure.RIGHT_BASE:
 			saw_hers = true
-		elif v >= EmbraceFigure.HIS_BASE and v < EmbraceFigure.EDGE:
+		elif v >= EmbraceFigure.RIGHT_BASE and v < EmbraceFigure.EDGE:
 			saw_his = true
 	t.ok(saw_hers, "she is in the drawing")
 	t.ok(saw_his, "he is in the drawing")
@@ -168,7 +168,7 @@ func _test_sequence(t: TestFramework) -> void:
 
 	var companion := PixelFigure.new()
 	_holder.add_child(companion)
-	companion.build(PixelFigure.Palette.husband())
+	companion.build(PixelFigure.Palette.for_trousers())
 	# Six metres down the hall, which is roughly where he waits.
 	companion.global_position = Vector3(0, 0, -6.0)
 
