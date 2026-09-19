@@ -9,11 +9,6 @@ extends RefCounted
 ## and the packing. That split is what makes the editor testable at all — the
 ## whole pipeline from "here are ten JPEGs" to "here is a .ccalbum" runs
 ## headlessly.
-##
-## The library stays where it is. Nothing is copied out of the source folder;
-## only the ten chosen photographs are decoded, and only their derived WebP
-## assets are held in memory (about 500 KB each, so five megabytes for a full
-## album — see plan §3.1).
 
 signal changed()
 

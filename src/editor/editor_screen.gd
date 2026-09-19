@@ -40,8 +40,6 @@ var _status: Label = null
 
 # --- album-level fields ---
 var _title: LineEdit = null
-var _author_note: TextEdit = null
-var _closing_line: LineEdit = null
 var _tabs: TabContainer = null
 var _cast_editor: CastEditor = null
 var _summary: Label = null
@@ -209,28 +207,12 @@ func _build_general() -> Control:
 	column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.add_child(column)
 
-	var open_row := HBoxContainer.new()
-	open_row.add_theme_constant_override("separation", 8)
-	open_row.add_child(_action("Open existing settings…", _on_open_album, 240))
-	var open_spacer := Control.new()
-	open_spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	open_row.add_child(open_spacer)
-	column.add_child(open_row)
-
 	column.add_child(_heading("Title"))
 	_title = LineEdit.new()
 	_title.placeholder_text = "For Maggie"
 	_title.text_changed.connect(func(t: String) -> void:
 		session.album.title = t)
 	column.add_child(_title)
-
-	column.add_child(_small("Shown when the settings are loaded."))
-
-	column.add_child(_heading("A note at the end"))
-	_author_note = _text_area(56)
-	_author_note.text_changed.connect(func() -> void:
-		session.album.author_note = _author_note.text)
-	column.add_child(_author_note)
 
 	column.add_child(_separator())
 	column.add_child(_heading("Characters"))
@@ -240,15 +222,6 @@ func _build_general() -> Control:
 	_cast_editor.setup(CastProfile.for_album(session.album))
 	_cast_editor.changed.connect(_on_cast_changed)
 	column.add_child(_cast_editor)
-
-	column.add_child(_separator())
-	column.add_child(_heading("Last line"))
-	_closing_line = LineEdit.new()
-	_closing_line.placeholder_text = "(leave empty for silence)"
-	_closing_line.text_changed.connect(func(t: String) -> void:
-		session.album.closing_line = t)
-	column.add_child(_closing_line)
-	column.add_child(_small("Said just before the hug, by the side character."))
 
 	column.add_child(_separator())
 	column.add_child(_heading("Calendar range"))
@@ -376,7 +349,7 @@ func _build_sources() -> Control:
 	column.add_theme_constant_override("separation", 8)
 	box.add_child(column)
 
-	column.add_child(_heading("Your photographs"))
+	column.add_child(_heading("Load photos"))
 
 	_choose_folder = Button.new()
 	_choose_folder.text = "Choose a folder…"
@@ -402,13 +375,9 @@ func _build_sources() -> Control:
 	column.add_child(_source_list)
 
 	_add_button = Button.new()
-	_add_button.text = "Hang this one →"
+	_add_button.text = "Select"
 	_add_button.pressed.connect(_on_add)
 	column.add_child(_add_button)
-
-	_source_note_footer = _small("Nothing is copied out of your folder. Only"
-		+ " the ten you choose are read.")
-	column.add_child(_source_note_footer)
 
 	return box
 
@@ -421,8 +390,7 @@ func _build_wall() -> Control:
 	column.add_theme_constant_override("separation", 8)
 	box.add_child(column)
 
-	column.add_child(_heading("The wall"))
-	column.add_child(_small("In the order they are walked past."))
+	column.add_child(_heading("Selected Photos"))
 
 	_wall_list = ItemList.new()
 	_wall_list.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -465,8 +433,6 @@ func _build_detail() -> Control:
 	_detail.add_theme_constant_override("separation", 6)
 	_detail.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.add_child(_detail)
-
-	_detail.add_child(_heading("This photograph"))
 
 	# The picture itself, at the top, because "which one is this" is the
 	# question every other field on this panel depends on.
@@ -1138,8 +1104,6 @@ func _wall_position(photo_id: String) -> int:
 
 func _read_album_fields() -> void:
 	_title.text = session.album.title
-	_author_note.text = session.album.author_note
-	_closing_line.text = session.album.closing_line
 	_guess_from.set_value_no_signal(float(session.album.guess_year_min))
 	_guess_to.set_value_no_signal(float(session.album.guess_year_max))
 	if _cast_editor != null:

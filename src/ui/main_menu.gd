@@ -9,7 +9,6 @@ extends Control
 ##   menu -> load album -> play -> hospital -> gallery -> ending -> menu
 
 const TITLE := "CHRONO CARTOGRAPHER"
-const SUBTITLE := "A gallery in a dying mind."
 
 var _status: RichTextLabel = null
 var _play_button: Button = null
@@ -55,12 +54,6 @@ func _build() -> void:
 	title.add_theme_font_size_override("font_size", 52)
 	title.add_theme_color_override("font_color", Color(0.94, 0.90, 0.82))
 	column.add_child(title)
-
-	var subtitle := Label.new()
-	subtitle.text = SUBTITLE
-	subtitle.add_theme_font_size_override("font_size", 18)
-	subtitle.add_theme_color_override("font_color", Color(0.62, 0.58, 0.52))
-	column.add_child(subtitle)
 
 	column.add_child(_spacer(28))
 
