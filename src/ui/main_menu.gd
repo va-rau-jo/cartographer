@@ -64,20 +64,34 @@ func _build() -> void:
 
 	column.add_child(_spacer(28))
 
-	# Making the settings comes first, because it is the first thing that has
-	# to happen: there is nothing to load or to begin until a file exists.
+	# Three groups, in the order they matter, with air between them:
+	#
+	#   1. playing, which is what almost everybody opening this wants;
+	#   2. the settings file that makes playing possible;
+	#   3. everything else.
+	#
+	# Start game sits at the top even though it is disabled until a file is
+	# loaded, because where a button IS should not move depending on state —
+	# and its being greyed out is itself the answer to "why can I not play".
+	_play_button = _make_button("Start game", _on_play_pressed)
+	column.add_child(_play_button)
+
+	column.add_child(_group_gap())
+
 	column.add_child(_make_button("Create settings", _on_editor_pressed))
 
 	_load_button = _make_button("Load settings…", _on_load_pressed)
 	column.add_child(_load_button)
 
-	_play_button = _make_button("Begin", _on_play_pressed)
-	column.add_child(_play_button)
+	column.add_child(_group_gap())
 
-	column.add_child(_make_button("Walk the gallery (no album)", _enter_gallery))
+	column.add_child(_make_button("Walk the gallery (no settings)",
+		_enter_gallery))
 
 	column.add_child(_make_button("Characters", _on_customize_pressed))
 
+	# On the web the tab is the quit button, and a Quit that cannot quit is
+	# worse than no Quit at all.
 	if not OS.has_feature("web"):
 		column.add_child(_make_button("Quit", _on_quit_pressed))
 
@@ -104,6 +118,24 @@ func _make_button(text: String, handler: Callable) -> Button:
 	b.add_theme_font_size_override("font_size", 18)
 	b.pressed.connect(handler)
 	return b
+
+
+## The air between two groups of buttons: a gap and a hairline the width of the
+## buttons, so the grouping reads as deliberate rather than as loose spacing.
+func _group_gap() -> Control:
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 0)
+	box.add_child(_spacer(10))
+	# Two pixels, not one: a one-pixel rule lands on a half-pixel at some
+	# window sizes and vanishes, which it did — one of the two dividers drew
+	# and the other did not.
+	var rule := ColorRect.new()
+	rule.color = Color(0.26, 0.24, 0.21)
+	rule.custom_minimum_size = Vector2(260, 2)
+	rule.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	box.add_child(rule)
+	box.add_child(_spacer(10))
+	return box
 
 
 func _spacer(height: int) -> Control:
