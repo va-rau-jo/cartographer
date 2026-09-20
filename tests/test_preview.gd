@@ -160,7 +160,7 @@ func _test_preview_screen(t: TestFramework, bytes: PackedByteArray) -> void:
 	t.eq(screen._grid.get_child_count(), PLACES.size(),
 		"one tile per photograph")
 	t.eq(screen._tiles.size(), PLACES.size(), "and one image per tile")
-	t.ok(not screen._play.disabled, "and Begin is available")
+	t.ok(not screen._play.disabled, "and the start button is available")
 
 	t.ok(screen._title_label.text.contains("For Maggie"),
 		"the album's title is shown (got %s)" % screen._title_label.text)
@@ -224,7 +224,7 @@ func _test_empty_preview(t: TestFramework) -> void:
 
 	t.ok(screen.album == null, "no album, and it knows")
 	t.eq(screen._grid.get_child_count(), 0, "no tiles")
-	t.ok(screen._play.disabled, "and Begin is refused")
+	t.ok(screen._play.disabled, "and the start button is refused")
 	t.ok(screen._title_label.text.contains("No settings"),
 		"with a line saying so (got %s)" % screen._title_label.text)
 

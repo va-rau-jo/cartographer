@@ -37,6 +37,7 @@ func run() -> TestFramework:
 	_test_cancel(t, rc, album)
 	_test_hint_count_from_album(t, rc, album)
 	_test_no_album(t, rc)
+	_test_setup_twice(t, rc, album)
 
 	_teardown()
 	return t
@@ -432,3 +433,24 @@ func _test_hint_count_from_album(t: TestFramework, rc: RoundController,
 	album.scoring.hint_costs = keep
 	t.eq(rc.hint_tier_count(), 3, "three costs mean three hints")
 	_reset(rc)
+
+
+## setup() used to connect every frame's area without disconnecting what an
+## earlier setup() had connected. A second call therefore asked Godot for a
+## duplicate connection, once per frame, and the engine printed an error and
+## refused it — and had the frames changed in between, the handlers bound to
+## the old indices would still have been live on areas that were still around.
+func _test_setup_twice(t: TestFramework, rc: RoundController, album: AlbumSchema.Album) -> void:
+	rc.setup(album, rc.frames, rc.player)
+	rc.setup(album, rc.frames, rc.player)
+
+	var doubled := 0
+	for frame in rc.frames:
+		var area := frame.interaction_area
+		if area == null:
+			continue
+		if area.body_entered.get_connections().size() != 1:
+			doubled += 1
+		if area.body_exited.get_connections().size() != 1:
+			doubled += 1
+	t.eq(doubled, 0, "setting up twice leaves one connection per frame signal")

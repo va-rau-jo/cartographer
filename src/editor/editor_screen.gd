@@ -73,7 +73,6 @@ var _adopt_failed := ""
 
 var _choose_folder: Button = null
 var _choose_archive: Button = null
-var _source_note_footer: Label = null
 var _add_button: Button = null
 var _export_button: Button = null
 
@@ -123,7 +122,7 @@ func _ready() -> void:
 
 	_refresh()
 	if _adopt_failed.is_empty():
-		_set_status("Start with the title and the characters, then add the photographs.")
+		_set_status("")
 	else:
 		_set_status("%s Starting new settings instead." % _adopt_failed)
 
@@ -224,7 +223,7 @@ func _build_general() -> Control:
 	column.add_child(_cast_editor)
 
 	column.add_child(_separator())
-	column.add_child(_heading("Calendar range"))
+	column.add_child(_heading("Set guessing range"))
 
 	var dial := HBoxContainer.new()
 	dial.add_theme_constant_override("separation", 8)
@@ -237,12 +236,18 @@ func _build_general() -> Control:
 	_guess_from.value_changed.connect(func(v: float) -> void:
 		session.album.guess_year_min = int(v)
 		_refresh_dial_note())
+	# _spin() expands to fill, which is what the narrow detail column needs;
+	# out here the row is 1500 px wide and two expanding boxes came out half a
+	# screen each. Let them keep their own width and give the rest to the
+	# spacer.
+	_guess_from.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	dial.add_child(_guess_from)
 	dial.add_child(_fixed_small("to", 24))
 	_guess_to = _spin(0.0, float(AlbumSchema.current_year()), 1.0, 96)
 	_guess_to.value_changed.connect(func(v: float) -> void:
 		session.album.guess_year_max = int(v)
 		_refresh_dial_note())
+	_guess_to.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	dial.add_child(_guess_to)
 	var dial_spacer := Control.new()
 	dial_spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -251,8 +256,6 @@ func _build_general() -> Control:
 
 	_dial_note = _small("")
 	column.add_child(_dial_note)
-	column.add_child(_small("Zero at either end works that end out from the"
-		+ " photographs."))
 
 	column.add_child(_separator())
 	column.add_child(_next_button("Photographs  →", 1))
@@ -522,9 +525,6 @@ func _build_detail() -> Control:
 		spin.value_changed.connect(func(_v: float) -> void: _write_date())
 	_detail.add_child(when)
 
-	_detail.add_child(_small("Zero means unknown. A year on its own is"
-		+ " enough."))
-
 	# Stacked, not side by side: two buttons in a row needed 346 px of the
 	# column's 320. In here, vertical space is cheap and horizontal is not.
 	var when_buttons := VBoxContainer.new()
@@ -547,8 +547,7 @@ func _build_detail() -> Control:
 	_detail.add_child(_precision)
 
 	_detail.add_child(_separator())
-	_detail.add_child(_small("Hints. Each one costs more than the last, so"
-		+ " each one should give more away."))
+	_detail.add_child(_small("Hints — each one costs more than the last"))
 
 	const HINT_LABELS := ["Hint 1", "Hint 2", "Hint 3"]
 	_hints.clear()
@@ -564,10 +563,9 @@ func _build_detail() -> Control:
 	# Baked lines are the one part of the album the author did not write, so
 	# somebody has to say they have read them (plan §8.3).
 	_approved = CheckBox.new()
-	# Short, because a Button's width is its text and this column is narrow —
+	# Short, because a Button's width is its text and this column is narrow:
 	# the long version of this line needed 381 px in a 320 px column and hung
-	# off the edge. The sentence that explains it goes underneath, in a label
-	# that wraps.
+	# off the edge. The Save tab is where an unticked photograph is named.
 	_approved.text = "Hints approved"
 	_approved.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_approved.add_theme_font_size_override("font_size", LABEL)
@@ -575,8 +573,6 @@ func _build_detail() -> Control:
 		_with_photo(func(p: AlbumSchema.Photo) -> void:
 			p.curator.approved_by_author = on))
 	_detail.add_child(_approved)
-	_detail.add_child(_small("Nothing saves until every photograph is"
-		+ " ticked."))
 
 	_detail.add_child(_small("Line when it is revealed"))
 	_monologue = _text_area(60)
@@ -586,7 +582,7 @@ func _build_detail() -> Control:
 	_detail.add_child(_monologue)
 
 	_detail.add_child(_separator())
-	_detail.add_child(_small("Private note — never shown in the game."))
+	_detail.add_child(_small("Private note"))
 	_private = _text_area(46)
 	_private.text_changed.connect(func() -> void:
 		_with_photo(func(p: AlbumSchema.Photo) -> void:
@@ -1019,16 +1015,6 @@ func _refresh_sources() -> void:
 		_source_list.add_item(session.source_label(i))
 	if not previous.is_empty() and previous[0] < _source_list.item_count:
 		_source_list.select(previous[0])
-
-	if _source_note_footer != null:
-		if session.archive != null:
-			var located := session.archive.with_sidecar_count()
-			_source_note_footer.text = ("From the zip. %d of %d came with"
-				+ " Google's own dates and locations; those fill themselves"
-				+ " in.") % [located, session.archive.count()]
-		else:
-			_source_note_footer.text = ("Nothing is copied out of your folder."
-				+ " Only the ten you choose are read.")
 
 
 func _refresh_wall_labels() -> void:

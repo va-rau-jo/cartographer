@@ -28,6 +28,14 @@ var _active := -1
 var _reveal_timer := 0.0
 var _hung: Array[AlbumSchema.Photo] = []
 
+## Everything setup() connected, so a second setup() can take it apart again:
+## [area, entered callable, exited callable] per frame. Without this, calling
+## setup() twice on one controller connected every area a second time — Godot
+## refused the duplicate and printed an error per frame, and if the frames had
+## changed in between, the handlers bound to the *old* frame indices stayed
+## connected to areas that were still in the scene.
+var _frame_hooks: Array = []
+
 
 func setup(a: AlbumSchema.Album, f: Array[PhotoFrame], p: PlayerController) -> void:
 	album = a
@@ -39,14 +47,18 @@ func setup(a: AlbumSchema.Album, f: Array[PhotoFrame], p: PlayerController) -> v
 	if a != null:
 		_hung = a.hung_photos()
 
+	_clear_frame_hooks()
 	for i in frames.size():
 		var frame := frames[i]
 		var area := frame.interaction_area
 		if area == null:
 			continue
 		# Bound so each frame reports its own index without a lookup.
-		area.body_entered.connect(_on_body_entered.bind(i))
-		area.body_exited.connect(_on_body_exited.bind(i))
+		var entered := _on_body_entered.bind(i)
+		var exited := _on_body_exited.bind(i)
+		area.body_entered.connect(entered)
+		area.body_exited.connect(exited)
+		_frame_hooks.append([area, entered, exited])
 
 	# Size the per-round state to the frames we actually have. AlbumService
 	# does this when an album loads, but the gallery can also be entered with
@@ -58,6 +70,22 @@ func setup(a: AlbumSchema.Album, f: Array[PhotoFrame], p: PlayerController) -> v
 
 	GameState.phase = GameState.Phase.GALLERY_IDLE
 	CCLog.info("round", "controller ready for %d photographs" % frames.size())
+
+
+## Undo the signal connections of an earlier setup(). Areas can have been freed
+## with their frames since, hence the validity check.
+func _clear_frame_hooks() -> void:
+	for hook: Array in _frame_hooks:
+		var area := hook[0] as Area3D
+		if area == null or not is_instance_valid(area):
+			continue
+		var entered := hook[1] as Callable
+		var exited := hook[2] as Callable
+		if area.body_entered.is_connected(entered):
+			area.body_entered.disconnect(entered)
+		if area.body_exited.is_connected(exited):
+			area.body_exited.disconnect(exited)
+	_frame_hooks.clear()
 
 
 func _process(delta: float) -> void:

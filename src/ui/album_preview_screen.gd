@@ -5,7 +5,7 @@ extends Control
 ## Two people arrive here and they need opposite things.
 ##
 ##   * The player has just loaded the gift. They need to know it is the right
-##     file and then press Begin. They must NOT see the ten photographs — they
+##     file and then start the game. They must NOT see the ten photographs — they
 ##     are the game.
 ##   * The author has just loaded their own work in progress. They need to see
 ##     it and get into the editor.
@@ -92,8 +92,7 @@ func _build() -> void:
 	scroll.add_child(_grid)
 
 	_reveal = CheckBox.new()
-	_reveal.text = "Show the photographs — only if these settings are yours;" \
-		+ " it gives the game away"
+	_reveal.text = "Show the photographs (gives the game away)"
 	_reveal.add_theme_font_size_override("font_size", LABEL)
 	_reveal.toggled.connect(_on_reveal_toggled)
 	column.add_child(_reveal)
@@ -105,7 +104,7 @@ func _build() -> void:
 	buttons.add_theme_constant_override("separation", 12)
 	column.add_child(buttons)
 
-	_play = _button("Begin", _on_play)
+	_play = _button("Start game", _on_play)
 	buttons.add_child(_play)
 	buttons.add_child(_button("Edit these settings", _on_edit))
 	buttons.add_child(_button("Load a different file", _on_load_another))
@@ -305,7 +304,7 @@ func _on_files_picked(files: Array) -> void:
 	# Whether it loaded or not, this screen now describes whatever the service
 	# holds — and on a failure it holds NOTHING, because load_album_bytes
 	# unloads before it tries. Repopulating is what stops the screen keeping
-	# the old album's title and tiles with Begin still armed over an empty
+	# the old album's title and tiles with the button still armed over an empty
 	# service, which sent the player into the hospital with no album at all.
 	var ok := AlbumService.load_album_bytes(bytes)
 	album = AlbumService.album()

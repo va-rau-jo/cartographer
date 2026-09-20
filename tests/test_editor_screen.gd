@@ -37,6 +37,7 @@ func run() -> TestFramework:
 	_test_copying_a_year(t, screen)
 	_test_filling_undated(t, screen)
 	_test_date_note(t, screen)
+	_test_no_hand_holding(t, screen)
 
 	screen.get_parent().remove_child(screen)
 	screen.free()
@@ -330,3 +331,37 @@ func _test_characters(t: TestFramework, screen: Control) -> void:
 	t.eq(CastProfile.for_album(screen.session.album).main.form,
 		PixelFigure.Build.SKIRT, "and it is written to the file")
 	editor._set_build(PixelFigure.Build.TROUSERS)
+
+
+## Collect every Label under a node, so a test can ask what the screen says
+## rather than what it is made of.
+func _all_label_text(node: Node) -> String:
+	var out := ""
+	for child in node.get_children():
+		var label := child as Label
+		if label != null:
+			out += label.text + "\n"
+		out += _all_label_text(child)
+	return out
+
+
+## The editor accumulated a sentence of explanation under almost every box —
+## "Shown when the settings are loaded", "Zero means unknown", and so on. They
+## made a long screen longer and said things the box itself already said. Gone,
+## and pinned here so they do not grow back one at a time. The notes that stay
+## are the ones that change with the file: the dial's actual span, and the line
+## that appears only on a photograph that arrived with no date.
+func _test_no_hand_holding(t: TestFramework, screen: Control) -> void:
+	var said := _all_label_text(screen)
+	for gone in ["Shown when the settings are loaded",
+			"as she would say", "Zero means unknown", "Zero at either end",
+			"In the order they are walked past", "Nothing is copied out of",
+			"Nothing saves until", "never shown in the game"]:
+		t.ok(not said.contains(gone), "no longer explains itself: '%s'" % gone)
+
+	var general: Node = screen._tabs.get_child(0)
+	var general_text := _all_label_text(general)
+	t.ok(general_text.contains("Set guessing range"),
+		"the dial is headed 'Set guessing range'")
+	t.ok(not general_text.contains("Calendar range"),
+		"and not 'Calendar range'")

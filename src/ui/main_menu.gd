@@ -78,10 +78,12 @@ func _build() -> void:
 
 	column.add_child(_group_gap())
 
+	# The characters used to have an entry of their own here. They are edited
+	# on the settings editor's General tab now, which is where they belong:
+	# they travel inside the settings file, so editing them anywhere else was
+	# editing a different thing that happened to look the same.
 	column.add_child(_make_button("Walk the gallery (no settings)",
 		_enter_gallery))
-
-	column.add_child(_make_button("Characters", _on_customize_pressed))
 
 	# On the web the tab is the quit button, and a Quit that cannot quit is
 	# worse than no Quit at all.
@@ -151,8 +153,8 @@ func _on_load_pressed() -> void:
 	Platform.pick_album_file()
 
 
-## Begin shows the settings' own page first. It is one click more, and it is
-## where "are these the right settings" gets answered — pressing Begin and
+## Starting shows the settings' own page first. It is one click more, and it
+## is where "are these the right settings" gets answered — starting and
 ## landing in a hospital room with no idea what is coming is worse.
 func _on_play_pressed() -> void:
 	var err := get_tree().change_scene_to_file(
@@ -177,14 +179,6 @@ func _on_editor_pressed() -> void:
 	if err != OK:
 		_set_status("[color=#e08080]Could not open the editor (error %d).[/color]"
 			% err)
-
-
-## The two characters: their names and how they look.
-func _on_customize_pressed() -> void:
-	var err := get_tree().change_scene_to_file("res://scenes/menu/customize.tscn")
-	if err != OK:
-		_set_status("[color=#e08080]Could not open the characters screen"
-			+ " (error %d).[/color]" % err)
 
 
 func _on_quit_pressed() -> void:
