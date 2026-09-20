@@ -37,7 +37,6 @@ const ZOOM_STEP := 1.22
 const LAT_SPAN := 170.0
 
 const COLOR_OCEAN := Color(0.078, 0.094, 0.118)
-const COLOR_LAND := Color(0.36, 0.40, 0.36)
 const COLOR_COAST := Color(0.62, 0.66, 0.60)
 const COLOR_GRID := Color(0.20, 0.23, 0.27)
 const COLOR_EQUATOR := Color(0.30, 0.34, 0.38)
@@ -147,9 +146,9 @@ func clear_pin() -> void:
 	queue_redraw()
 
 
-## Place the pin at a known position — for restoring a guess in progress, and
-## for the tests.
-## Put the pin somewhere, without claiming the player did it.
+## Put the pin at a known position, without claiming the player did it — for
+## restoring a guess in progress, for showing where a photograph already is,
+## and for the tests.
 ##
 ## This used to emit `pin_moved`, which made it a WRITE as well as a read: the
 ## editor calls it to show where a photograph already is, that emission ran the

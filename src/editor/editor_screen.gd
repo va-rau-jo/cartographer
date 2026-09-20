@@ -711,20 +711,15 @@ func _on_choose_archive() -> void:
 	Platform.pick_photo_archive()
 
 
-func _on_open_album() -> void:
-	if Platform.is_picking():
-		_set_status("There is already a file dialog open.")
-		return
-	_set_status("Choose a settings file to open…")
-	Platform.pick_album_file()
-
-
 func _on_pick_cancelled() -> void:
 	_set_status("")
 
 
 ## One handler for both pickers, because Platform has one signal. An album
-## file arrives as a single .ccalbum; a folder arrives as many images.
+## file arrives as a single .ccalbum; a folder arrives as many images. The
+## editor has no "open settings" button of its own any more — the menu's Load
+## settings does that — but the archive picker's filter takes .ccalbum as well
+## as .zip, so one can still arrive here that way.
 func _on_files_picked(files: Array) -> void:
 	if files.is_empty():
 		return

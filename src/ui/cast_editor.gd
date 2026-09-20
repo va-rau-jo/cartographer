@@ -223,15 +223,6 @@ func _build_controls() -> Control:
 	return rows
 
 
-func _small(text: String) -> Label:
-	var l := Label.new()
-	l.text = text
-	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	l.add_theme_font_size_override("font_size", LABEL - 2)
-	l.add_theme_color_override("font_color", Color(0.60, 0.57, 0.52))
-	return l
-
-
 func _section(text: String) -> Label:
 	var l := Label.new()
 	l.text = text

@@ -335,16 +335,6 @@ func _rect(c: PackedByteArray, x0: int, y0: int, x1: int, y1: int, v: int) -> vo
 			_px(c, x, y, v)
 
 
-func _ellipse(c: PackedByteArray, cx: float, cy: float, rx: float, ry: float,
-		v: int) -> void:
-	for y in range(int(floor(cy - ry)), int(ceil(cy + ry)) + 1):
-		for x in range(int(floor(cx - rx)), int(ceil(cx + rx)) + 1):
-			var dx := (float(x) + 0.5 - cx) / maxf(rx, 0.001)
-			var dy := (float(y) + 0.5 - cy) / maxf(ry, 0.001)
-			if dx * dx + dy * dy <= 1.0:
-				_px(c, x, y, v)
-
-
 ## A tapered column, for a skirt that flares toward the hem.
 func _taper(c: PackedByteArray, y0: int, y1: int, half_at_y0: float,
 		half_at_y1: float, centre: float, v: int) -> void:
