@@ -129,6 +129,31 @@ func _run() -> void:
 			await get_tree().process_frame
 		_save(window, "43_editor_dates")
 
+	# A photograph exactly as it arrives out of a folder of scans: no date, no
+	# location, so both are sitting on the defaults this editor filled in. The
+	# two notes and the wall row all have to say so, because a default left
+	# alone is what the player gets scored against.
+	screen.session.add_photo("scan_05.jpg", _plain_jpeg(905))
+	screen._select(screen.session.slot_count() - 1)
+	if scroll != null:
+		scroll.scroll_vertical = int(maxf(0.0,
+			screen._lat.get_parent().position.y - 120.0))
+	for _i in 4:
+		await get_tree().process_frame
+	_save(window, "46_editor_defaults")
+	print("")
+	print("place note     %s" % screen._place_note.text)
+	print("default date   %s" % screen._date_note.text)
+	print("wall row       %s" % screen._wall_list.get_item_text(
+		screen.session.slot_count() - 1))
+	print("defaults line  %s" % screen._defaults_line())
+	print("save button    %s" % ("live" if not screen._export_button.disabled
+		else "blocked"))
+	screen.session.remove_slot(screen.session.slot_count() - 1)
+	screen._select(1)
+	for _i in 2:
+		await get_tree().process_frame
+
 	# And an undated photograph, which is what a scan arrives as: the note
 	# above the boxes has to say so.
 	screen.session.slot_at(2).photo.truth.date.year = 0
@@ -156,6 +181,16 @@ func _run() -> void:
 	print("exportable     %s" % ("yes" if screen.session.can_export() else "no"))
 	print("problems       %d" % screen.session.problems(true).size())
 	get_tree().quit(0)
+
+
+## A plain noise JPEG, for a photograph that is only there to arrive.
+func _plain_jpeg(seed_value: int) -> PackedByteArray:
+	var noise := FastNoiseLite.new()
+	noise.seed = seed_value
+	noise.frequency = 0.03
+	var img := noise.get_image(320, 240)
+	img.convert(Image.FORMAT_RGB8)
+	return img.save_jpg_to_buffer(0.9)
 
 
 func _save(window: Window, name: String) -> void:

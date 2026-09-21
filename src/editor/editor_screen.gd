@@ -65,6 +65,7 @@ var _map: MapWidget = null
 var _source_note: Label = null
 var _preview: TextureRect = null
 var _date_note: Label = null
+var _place_note: Label = null
 ## What an in-flight export will be called, kept so the status line can report
 ## the truth once the platform says whether it was written.
 var _pending_export := ""
@@ -481,15 +482,20 @@ func _build_detail() -> Control:
 	_lat = _spin(-90.0, 90.0, 0.0001, 92)
 	_lat.value_changed.connect(func(v: float) -> void:
 		_with_photo(func(p: AlbumSchema.Photo) -> void: p.truth.lat = v)
+		_place_answered()
 		_sync_map())
 	coords.add_child(_lat)
 	coords.add_child(_fixed_small("lon", 30))
 	_lon = _spin(-180.0, 180.0, 0.0001, 92)
 	_lon.value_changed.connect(func(v: float) -> void:
 		_with_photo(func(p: AlbumSchema.Photo) -> void: p.truth.lon = v)
+		_place_answered()
 		_sync_map())
 	coords.add_child(_lon)
 	_detail.add_child(coords)
+
+	_place_note = _small("")
+	_detail.add_child(_place_note)
 
 	_detail.add_child(_separator())
 	_detail.add_child(_small("When"))
@@ -733,10 +739,12 @@ func _on_files_picked(files: Array) -> void:
 		return
 
 	var kept := session.set_sources(files)
-	_set_status("%d photograph%s in that folder%s."
+	var hung := await _auto_hang()
+	_set_status("%d photograph%s in that folder%s.%s"
 		% [kept, "" if kept == 1 else "s",
 		   "" if kept == files.size()
-		   else " (%d other files ignored)" % (files.size() - kept)])
+		   else " (%d other files ignored)" % (files.size() - kept),
+		   _hung_note(hung)])
 
 
 func _open_album_file(file: Platform.PickedFile) -> void:
@@ -776,9 +784,57 @@ func _open_archive_file(file: Platform.PickedFile) -> void:
 
 	_select(-1)
 	var with_metadata := session.archive.with_sidecar_count()
+	var hung := await _auto_hang()
 	_set_status("%d photographs in %s, %d of them with Google's own dates and"
 		% [session.archive.count(), file.name, with_metadata]
-		+ " locations. Pick the ten you want.")
+		+ " locations.%s" % _hung_note(hung))
+
+
+## Hang the first ten of whatever was just loaded, so a folder becomes a
+## playable wall in one step instead of ten. Anything that will not decode is
+## skipped and the next one takes its place, so ten photographs are hung out
+## of a folder where two are broken.
+##
+## Only ever when the wall is empty. A wall with photographs on it is the
+## author's own arrangement, in their own order, and a second folder opened to
+## find one more photograph must not push nine strangers onto it.
+func _auto_hang() -> int:
+	if session.slot_count() > 0:
+		return 0
+
+	_add_button.disabled = true
+	var hung := 0
+	if session.archive != null:
+		# A zip needs no await, so the loop lives on the session where it can
+		# be tested without a screen.
+		hung = session.fill_from_archive()
+	else:
+		var index := 0
+		while not session.is_full() and index < session.sources.size():
+			var file: Platform.PickedFile = session.sources[index]
+			var bytes: PackedByteArray = await Platform.read_file(file)
+			var error := "could not read it"
+			if not bytes.is_empty():
+				error = session.add_photo(file.name, bytes)
+			if error.is_empty():
+				hung += 1
+			else:
+				CCLog.info("editor", "not hung: %s (%s)" % [file.name, error])
+			index += 1
+
+	_add_button.disabled = false
+	if hung > 0:
+		_select(0)
+	return hung
+
+
+## The tail of the status line after a load, naming what was hung without
+## repeating it when nothing was.
+func _hung_note(hung: int) -> String:
+	if hung <= 0:
+		return " Pick the ten you want."
+	return " Hung the first %d — every one of them needs its date and place" \
+		% hung + " checked."
 
 
 func _on_add() -> void:
@@ -904,14 +960,30 @@ func _on_copy_year() -> void:
 		return
 
 	var year := above.photo.truth.date.year
-	_year.set_value_no_signal(float(year))
-	_write_date()
+	_set_year_only(_selected, year)
+	_refresh()
 	_read_photo_fields()
 	_set_status("Dated %d, the same as the one above it." % year)
 
 
-## Stamp this year onto every photograph that has none. Nothing that already
-## carries a date is touched — the point is the scans that arrived blank.
+## A year is the whole of what these two buttons know, so the month and the day
+## go back to zero and the scoring drops to the year with them. Copying 1974
+## onto a photograph dated today by default must not leave it claiming the
+## 21st of September 1974.
+func _set_year_only(index: int, year: int) -> void:
+	var slot := session.slot_at(index)
+	if slot == null:
+		return
+	slot.photo.truth.date.year = year
+	slot.photo.truth.date.month = 0
+	slot.photo.truth.date.day = 0
+	slot.photo.truth.date_precision = AlbumSchema.DatePrecision.YEAR
+	slot.date_defaulted = false
+
+
+## Stamp this year onto every photograph that has none — or that is still
+## carrying the date this editor gave it, which amounts to the same thing.
+## Nothing the author dated themselves is touched: the point is the scans.
 func _on_fill_years() -> void:
 	# The year box belongs to the selected photograph. With nothing selected it
 	# still held the LAST one's value and still stamped it onto everything —
@@ -927,14 +999,14 @@ func _on_fill_years() -> void:
 
 	var filled := 0
 	for i in session.slot_count():
-		var photo := session.slot_at(i).photo
-		if photo.truth.date.is_set():
+		var slot := session.slot_at(i)
+		if slot.photo.truth.date.is_set() and not slot.date_is_default():
 			continue
-		photo.truth.date.year = year
+		_set_year_only(i, year)
 		filled += 1
 
 	if filled == 0:
-		_set_status("They all have a year already.")
+		_set_status("They all have a year of their own already.")
 		return
 	_refresh()
 	_read_photo_fields()
@@ -944,10 +1016,27 @@ func _on_fill_years() -> void:
 
 
 func _write_date() -> void:
+	var slot := session.slot_at(_selected)
+	if slot != null:
+		slot.date_defaulted = false
 	_with_photo(func(p: AlbumSchema.Photo) -> void:
 		p.truth.date.year = int(_year.value)
 		p.truth.date.month = int(_month.value)
 		p.truth.date.day = int(_day.value))
+	_refresh_date_note(_current())
+
+
+## The author has said where this one was taken, so it is no longer sitting on
+## the default. Kept separate from _write_date's equivalent because the place
+## is answered from three different controls.
+func _place_answered() -> void:
+	var slot := session.slot_at(_selected)
+	if slot == null or not slot.place_defaulted:
+		return
+	slot.place_defaulted = false
+	_refresh_place_note(slot)
+	_refresh_wall_labels()
+	_refresh_problems()
 
 
 func _write_hint(index: int) -> void:
@@ -965,6 +1054,7 @@ func _on_map_pin(lat: float, lon: float) -> void:
 	_with_photo(func(p: AlbumSchema.Photo) -> void:
 		p.truth.lat = lat
 		p.truth.lon = lon)
+	_place_answered()
 
 
 func _sync_map() -> void:
@@ -1000,7 +1090,12 @@ func _refresh() -> void:
 	_detail.process_mode = Node.PROCESS_MODE_INHERIT if have \
 		else Node.PROCESS_MODE_DISABLED
 	_add_button.disabled = session.is_full() or _pending_source >= 0
-	_export_button.disabled = not session.can_export()
+	# Saving is never blocked on an unfinished album. The author is the one
+	# who knows whether it is finished, the problem list on this tab tells
+	# them what is not, and a half-built file they can save and come back to
+	# is worth more than a button that refuses to explain itself. The one
+	# thing that cannot be saved is nothing at all.
+	_export_button.disabled = session.slot_count() == 0
 
 
 func _refresh_sources() -> void:
@@ -1020,8 +1115,12 @@ func _refresh_wall_labels() -> void:
 		var where := photo.truth.place_label
 		if where.is_empty():
 			where = "(nowhere yet)"
+		if slot.place_is_default():
+			where += " (default)"
 		var when := photo.truth.date.label() if photo.truth.date.is_set() \
 			else "(no date)"
+		if slot.date_is_default():
+			when += " (default)"
 		_wall_list.add_item("%d.  %s — %s" % [i + 1, where, when],
 			slot.thumbnail())
 	if _selected >= 0 and _selected < _wall_list.item_count:
@@ -1039,11 +1138,18 @@ func _refresh_problems() -> void:
 	# list, with the Save button enabled.
 	if errors == 0 and warnings == 0:
 		_problem_text.text = "[color=#8fbf8f]Ready to save.[/color]"
+		var only_defaults := _defaults_line()
+		if not only_defaults.is_empty():
+			_problem_text.text += "\n" + only_defaults
 		return
 
 	var lines: PackedStringArray = PackedStringArray()
-	lines.append("[b]%d thing%s to fix[/b], %d worth a look"
-		% [errors, "" if errors == 1 else "s", warnings])
+	lines.append("[b]%d thing%s unfinished[/b], %d worth a look — you can save"
+		% [errors, "" if errors == 1 else "s", warnings]
+		+ " either way.")
+	var defaults := _defaults_line()
+	if not defaults.is_empty():
+		lines.append(defaults)
 
 	# Counted over the ones that are actually listed. The tail used to be
 	# `problems.size() - shown`, which included the notes it had just skipped,
@@ -1071,6 +1177,25 @@ func _refresh_problems() -> void:
 			break
 
 	_problem_text.text = "\n".join(lines)
+
+
+## The photographs still dated today and pinned at the default, by their place
+## on the wall. A well-formed album of ten identical answers is the one mistake
+## the validator cannot see, so this line is the only thing standing between
+## the author and a game that scores every guess against Seattle.
+func _defaults_line() -> String:
+	var at := session.defaulted_positions()
+	if at.is_empty():
+		return ""
+	var numbers: PackedStringArray = PackedStringArray()
+	for n in at:
+		numbers.append(str(n))
+	if at.size() == 1:
+		return "[color=#d8c070]•[/color] Photograph %s still has the date or" \
+			% numbers[0] + " place it was given by default."
+	return "[color=#d8c070]•[/color] %d photographs still have the date or" \
+		% at.size() + " place they were given by default: %s." \
+		% ", ".join(numbers)
 
 
 ## Where a photo id sits on the wall, or -1 if it is not hung.
@@ -1101,6 +1226,8 @@ func _read_photo_fields() -> void:
 		_preview.texture = null
 		if _date_note != null:
 			_date_note.text = ""
+		if _place_note != null:
+			_place_note.text = ""
 		_clear_photo_fields()
 		return
 	var photo := slot.photo
@@ -1125,6 +1252,7 @@ func _read_photo_fields() -> void:
 	_month.set_value_no_signal(float(photo.truth.date.month))
 	_day.set_value_no_signal(float(photo.truth.date.day))
 	_refresh_date_note(photo)
+	_refresh_place_note(slot)
 
 	for i in _hints.size():
 		_hints[i].text = photo.curator.hints[i] if i < photo.curator.hints.size() \
@@ -1155,16 +1283,25 @@ func _refresh_summary() -> void:
 
 ## Whether this photograph brought a date with it, and where from. An undated
 ## scan is the normal case and the author needs to be told, not left to notice
-## three empty boxes.
+## three empty boxes — or, now that a blank date is filled in for them, left to
+## assume today's is right.
 func _refresh_date_note(photo: AlbumSchema.Photo) -> void:
-	if _date_note == null:
+	if _date_note == null or photo == null:
+		return
+	var slot := session.slot_at(_selected)
+	# The flag with the date still on it: a date the author blanked by hand is
+	# no longer the default, whatever the flag says.
+	if slot != null and slot.date_is_default():
+		_date_note.text = "No date came with it, so it says today — %s." \
+			% photo.truth.date.label()
+		_date_note.text += " Change it if you know when it was taken; a year on"
+		_date_note.text += " its own is enough."
 		return
 	if not photo.truth.date.is_set():
 		_date_note.text = "This one came with no date. Set it here — a year on"
 		_date_note.text += " its own is enough."
 		return
 
-	var slot := session.slot_at(_selected)
 	var came_from := "off the photograph"
 	if slot != null and slot.from_sidecar:
 		# Worth naming: Google's date is when the file was made, which for a
@@ -1172,6 +1309,19 @@ func _refresh_date_note(photo: AlbumSchema.Photo) -> void:
 		came_from = "out of Google's export — check it, a scan is dated the" \
 			+ " day it was scanned"
 	_date_note.text = "%s, %s." % [photo.truth.date.label(), came_from]
+
+
+## The same for the place. Nothing to say once the author has pinned it: the
+## pin and the two boxes are already showing where it is.
+func _refresh_place_note(slot: EditorSession.Slot) -> void:
+	if _place_note == null:
+		return
+	if slot != null and slot.place_is_default():
+		_place_note.text = "No location came with it, so it is pinned at %s." \
+			% EditorSession.DEFAULT_PLACE_LABEL
+		_place_note.text += " Move the pin to where it was really taken."
+	else:
+		_place_note.text = ""
 
 
 ## Empty the detail column and stop it taking input.
@@ -1201,8 +1351,8 @@ func _clear_photo_fields() -> void:
 # ------------------------------------------------------------------- export
 
 func _on_export() -> void:
-	if not session.can_export():
-		_set_status("Not yet — this tab says what is missing.")
+	if session.slot_count() == 0:
+		_set_status("Nothing to save yet — hang a photograph first.")
 		return
 
 	var bytes := session.export_bytes()
@@ -1217,6 +1367,11 @@ func _on_export() -> void:
 	var filename := session.suggested_filename()
 	_pending_export = "%s — %d KB, %d photographs" \
 		% [filename, bytes.size() / 1024, session.slot_count()]
+	var left := session.problems(true)
+	var unfinished := AlbumValidator.count_of(left, AlbumValidator.Severity.ERROR)
+	if unfinished > 0:
+		_pending_export += ", %d thing%s still unfinished" \
+			% [unfinished, "" if unfinished == 1 else "s"]
 	_set_status("Choose where to put %s…" % filename)
 	Platform.deliver_file(bytes, filename, "application/zip")
 

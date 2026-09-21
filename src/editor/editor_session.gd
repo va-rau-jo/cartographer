@@ -14,6 +14,19 @@ signal changed()
 
 const MAX_PHOTOS := AlbumSchema.PHOTOS_PER_ALBUM
 
+## Where a photograph that carries no coordinates of its own starts, and what
+## a photograph that carries no date is dated. A scanned print has neither, and
+## an author who has to fill in ten of each before anything is playable tends
+## not to finish. So every slot starts answerable and the editor says, in the
+## detail panel, on the wall and on the Save tab, which answers are still only
+## these — a default left in place is a wrong answer the player is scored
+## against, so it must never be quiet.
+const DEFAULT_LAT := 47.6062
+const DEFAULT_LON := -122.3321
+const DEFAULT_PLACE_LABEL := "Seattle, WA"
+const DEFAULT_COUNTRY := "US"
+const DEFAULT_REGION := "Washington"
+
 
 ## One hung photograph: its manifest entry, where it came from, and the
 ## encoded assets built from it.
@@ -33,6 +46,35 @@ class Slot extends RefCounted:
 	var exif_lon := NAN
 	## True when a Google sidecar contributed something to this slot.
 	var from_sidecar := false
+
+	## True when this editor, rather than the photograph or the author, is
+	## where the date or the place came from. Editor-only: nothing about it is
+	## written to the file, because by the time a file is saved these should
+	## all be false.
+	var date_defaulted := false
+	var place_defaulted := false
+	## What the default put there, so that a change made anywhere — the boxes,
+	## the map, a tool writing to the photo directly — takes the flag off by
+	## itself. The flag alone lied: it survived every write that did not go
+	## through the screen, and then the Save tab reported photographs as
+	## defaulted that the author had answered.
+	var default_date: AlbumSchema.PhotoDate = null
+
+	func date_is_default() -> bool:
+		if not date_defaulted or default_date == null:
+			return false
+		var d := photo.truth.date
+		return d.year == default_date.year and d.month == default_date.month \
+			and d.day == default_date.day
+
+	func place_is_default() -> bool:
+		if not place_defaulted:
+			return false
+		return is_equal_approx(photo.truth.lat, DEFAULT_LAT) \
+			and is_equal_approx(photo.truth.lon, DEFAULT_LON)
+
+	func has_default() -> bool:
+		return date_is_default() or place_is_default()
 
 	var _thumbnail: ImageTexture = null
 
@@ -196,6 +238,24 @@ func add_from_archive(index: int) -> String:
 	return add_photo(entry.name, bytes, entry)
 
 
+## Hang the first photographs out of a loaded zip, in the zip's own order,
+## until the wall is full or the zip runs out. Anything that will not decode is
+## skipped and the next one takes its place. Returns how many went up.
+##
+## Folder sources cannot come through here: their bytes arrive through Platform,
+## which only the screen can await.
+func fill_from_archive() -> int:
+	if archive == null:
+		return 0
+	var hung := 0
+	var index := 0
+	while not is_full() and index < archive.count():
+		if add_from_archive(index).is_empty():
+			hung += 1
+		index += 1
+	return hung
+
+
 ## Decode a chosen file and add it as the next photograph. `from_archive`, when
 ## given, is the zip entry it came from, whose sidecar fills in anything the
 ## image's own EXIF did not carry.
@@ -233,6 +293,7 @@ func add_photo(filename: String, bytes: PackedByteArray,
 	_prefill_from_exif(slot)
 	if from_archive != null:
 		_prefill_from_sidecar(slot, from_archive)
+	_fill_defaults(slot)
 
 	slots.append(slot)
 	album.photos.append(photo)
@@ -288,6 +349,37 @@ func _prefill_from_sidecar(slot: Slot, entry: PhotoArchive.Entry) -> void:
 	if not slot.photo.truth.has_location() and entry.has_location():
 		slot.photo.truth.lat = entry.lat
 		slot.photo.truth.lon = entry.lon
+
+
+## Whatever neither the photograph nor the sidecar knew. Runs last, so it only
+## ever fills a gap, and flags what it filled.
+func _fill_defaults(slot: Slot) -> void:
+	var truth := slot.photo.truth
+	if not truth.date.is_set():
+		var today := Time.get_date_dict_from_system(true)
+		truth.date.year = int(today.get("year", AlbumSchema.current_year()))
+		truth.date.month = int(today.get("month", 1))
+		truth.date.day = int(today.get("day", 1))
+		truth.date_precision = AlbumSchema.DatePrecision.DAY
+		slot.date_defaulted = true
+		slot.default_date = AlbumSchema.PhotoDate.from_dict(truth.date.to_dict())
+
+	if not truth.has_location():
+		truth.lat = DEFAULT_LAT
+		truth.lon = DEFAULT_LON
+		truth.place_label = DEFAULT_PLACE_LABEL
+		truth.country_code = DEFAULT_COUNTRY
+		truth.region = DEFAULT_REGION
+		slot.place_defaulted = true
+
+
+## Wall positions (1-based, as the author sees them) still carrying a default.
+func defaulted_positions() -> PackedInt32Array:
+	var out: PackedInt32Array = PackedInt32Array()
+	for i in slots.size():
+		if slots[i].has_default():
+			out.append(i + 1)
+	return out
 
 
 func remove_slot(index: int) -> void:

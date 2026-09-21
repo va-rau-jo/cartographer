@@ -29,6 +29,7 @@ func run() -> TestFramework:
 	_test_staging_is_per_archive(t)
 	_test_refusals(t)
 	_test_into_the_editor(t)
+	_test_filling_the_wall(t)
 
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(ZIP_PATH))
 	return t
@@ -317,6 +318,37 @@ func _test_into_the_editor(t: TestFramework) -> void:
 	session.set_sources([])
 	t.ok(session.archive == null, "choosing a folder closes the archive")
 	t.eq(session.source_count(), 0, "and replaces its listing")
+
+## Loading a zip hangs the first ten by itself. A folder of scans is a wall
+## the author then corrects, not twelve clicks before anything can be looked
+## at — and the eleventh photograph onwards stays in the list, because the
+## wall holds ten.
+func _test_filling_the_wall(t: TestFramework) -> void:
+	var files := {}
+	for i in 12:
+		files["Photos/IMG_%04d.JPG" % (i + 1)] = _jpeg(60 + i)
+
+	var session := EditorSession.new()
+	t.eq(session.set_archive(PhotoArchive.from_bytes(_zip(files))), "",
+		"a zip of twelve loads")
+	t.eq(session.fill_from_archive(), EditorSession.MAX_PHOTOS,
+		"and ten of them go up")
+	t.eq(session.slot_count(), EditorSession.MAX_PHOTOS, "filling the wall")
+	t.eq(session.source_count(), 12, "the other two are still on offer")
+	t.eq(session.slot_at(0).source_name, "IMG_0001.JPG",
+		"in the zip's own order")
+
+	# None of these had a sidecar or usable EXIF, so every one of them is
+	# sitting on a default and every one of them must say so.
+	t.eq(session.defaulted_positions().size(), EditorSession.MAX_PHOTOS,
+		"all ten are flagged as defaulted")
+	t.eq(session.slot_at(3).photo.truth.place_label,
+		EditorSession.DEFAULT_PLACE_LABEL, "pinned at the default place")
+	t.ok(session.slot_at(3).photo.truth.date.is_set(), "and dated")
+
+	# A second fill adds nothing rather than complaining.
+	t.eq(session.fill_from_archive(), 0, "a full wall takes no more")
+
 
 ## A sidecar may only be shared by NAME, never by coincidence.
 ##

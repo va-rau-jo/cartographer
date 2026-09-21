@@ -313,6 +313,14 @@ func _build_frames() -> void:
 		hung = album.hung_photos()
 
 	for i in hallway.frame_anchors.size():
+		# An album with fewer than a full wall leaves the rest of the hall
+		# bare. The alternative is a frame she can walk up to, prompt at, and
+		# never examine — and because the ending waits for every frame to be
+		# played, a hall with one unplayable frame in it never ends. Only a
+		# gallery with no album at all falls through to the placeholders.
+		if album != null and i >= hung.size():
+			break
+
 		var frame := PhotoFrame.new()
 		add_child(frame)
 		frame.transform = hallway.frame_anchors[i]
